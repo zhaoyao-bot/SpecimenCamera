@@ -1,0 +1,34 @@
+name: SpecimenCamera
+options:
+  bundleIdPrefix: com.worklife
+  deploymentTarget:
+    iOS: "15.0"
+  xcodeVersion: "15.0"
+  generateEmptyDirectories: true
+
+settings:
+  base:
+    SWIFT_VERSION: "5.9"
+    IPHONEOS_DEPLOYMENT_TARGET: "15.0"
+    TARGETED_DEVICE_FAMILY: "1"
+
+targets:
+  SpecimenCamera:
+    type: application
+    platform: iOS
+    sources:
+      - SpecimenCamera
+    settings:
+      base:
+        INFOPLIST_FILE: SpecimenCamera/Info.plist
+        PRODUCT_BUNDLE_IDENTIFIER: com.worklife.specimen.camera
+        PRODUCT_NAME: SpecimenCamera
+        CODE_SIGN_IDENTITY: "Apple Development"
+        CODE_SIGNING_REQUIRED: "YES"
+        CODE_SIGNING_ALLOWED: "YES"
+        CODE_SIGN_STYLE: "Automatic"
+        DEVELOPMENT_TEAM: "AMGXXNN866"
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        CODE_SIGN_ENTITLEMENTS: SpecimenCamera/SpecimenCamera.entitlements
+        TARGETED_DEVICE_FAMILY: "1"
+        SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD: "NO"
