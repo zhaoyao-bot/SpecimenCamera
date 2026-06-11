@@ -7,19 +7,29 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		0C3A52F0C810F540E09C11D8 /* api.md in Resources */ = {isa = PBXBuildFile; fileRef = 5BE3A394807742109E134F4A /* api.md */; };
 		14D9A8D5B027ECC6101DF8B7 /* CameraManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E8F14A1BF27BF7AFBA1F722 /* CameraManager.swift */; };
 		1E401F4A3D6607B480FEE10D /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC8C229572798A829204B6B8 /* ContentView.swift */; };
+		53A979C5480EFB29750ACA10 /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1CC5ADD95D3096350C55E3C /* Models.swift */; };
+		574EA35FA54F9BC204B53D42 /* CaptureSetupView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 16B05E590923975A02C9BA61 /* CaptureSetupView.swift */; };
 		721E69FAA4AD57F6FB30BCE5 /* SpecimenCameraApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2444699080229A285AA695B6 /* SpecimenCameraApp.swift */; };
 		78EA0E18930965854EB955FE /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = F29EE177ABE4B5D5A15271D8 /* Assets.xcassets */; };
+		7FE1DA0203E7B19AE21C2473 /* TileCaptureView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 466C2517D535F38DA15A3515 /* TileCaptureView.swift */; };
 		A5588CF69D396E96343CE8D8 /* CameraPreviewView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9CE198AE5C52B7C63EEA606D /* CameraPreviewView.swift */; };
+		B716E8A3A2A80274169A5CBA /* APIService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 552993F4C8006129D56C5D91 /* APIService.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+		16B05E590923975A02C9BA61 /* CaptureSetupView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaptureSetupView.swift; sourceTree = "<group>"; };
 		1DEDEDF9C670694E4696ACEF /* SpecimenCamera.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = SpecimenCamera.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		2444699080229A285AA695B6 /* SpecimenCameraApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpecimenCameraApp.swift; sourceTree = "<group>"; };
+		466C2517D535F38DA15A3515 /* TileCaptureView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TileCaptureView.swift; sourceTree = "<group>"; };
+		552993F4C8006129D56C5D91 /* APIService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = APIService.swift; sourceTree = "<group>"; };
+		5BE3A394807742109E134F4A /* api.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = api.md; sourceTree = "<group>"; };
 		7E8F14A1BF27BF7AFBA1F722 /* CameraManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CameraManager.swift; sourceTree = "<group>"; };
 		9CE198AE5C52B7C63EEA606D /* CameraPreviewView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CameraPreviewView.swift; sourceTree = "<group>"; };
 		A035DFCEBB2C47A6EE4D803F /* SpecimenCamera.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = SpecimenCamera.entitlements; sourceTree = "<group>"; };
+		A1CC5ADD95D3096350C55E3C /* Models.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Models.swift; sourceTree = "<group>"; };
 		CC8C229572798A829204B6B8 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		CCDCA04D4506232017CAA5EF /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		F29EE177ABE4B5D5A15271D8 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
@@ -34,6 +44,14 @@
 			);
 			sourceTree = "<group>";
 		};
+		9A268DB6CA44E8C0410AEE1E /* docs */ = {
+			isa = PBXGroup;
+			children = (
+				5BE3A394807742109E134F4A /* api.md */,
+			);
+			path = docs;
+			sourceTree = "<group>";
+		};
 		BD51EC0458974BA4B065F8E3 /* Products */ = {
 			isa = PBXGroup;
 			children = (
@@ -45,13 +63,18 @@
 		C4AFCBAD54AC441A9B170AA0 /* SpecimenCamera */ = {
 			isa = PBXGroup;
 			children = (
+				552993F4C8006129D56C5D91 /* APIService.swift */,
 				F29EE177ABE4B5D5A15271D8 /* Assets.xcassets */,
 				7E8F14A1BF27BF7AFBA1F722 /* CameraManager.swift */,
 				9CE198AE5C52B7C63EEA606D /* CameraPreviewView.swift */,
+				16B05E590923975A02C9BA61 /* CaptureSetupView.swift */,
 				CC8C229572798A829204B6B8 /* ContentView.swift */,
 				CCDCA04D4506232017CAA5EF /* Info.plist */,
+				A1CC5ADD95D3096350C55E3C /* Models.swift */,
 				A035DFCEBB2C47A6EE4D803F /* SpecimenCamera.entitlements */,
 				2444699080229A285AA695B6 /* SpecimenCameraApp.swift */,
+				466C2517D535F38DA15A3515 /* TileCaptureView.swift */,
+				9A268DB6CA44E8C0410AEE1E /* docs */,
 			);
 			path = SpecimenCamera;
 			sourceTree = "<group>";
@@ -117,6 +140,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				78EA0E18930965854EB955FE /* Assets.xcassets in Resources */,
+				0C3A52F0C810F540E09C11D8 /* api.md in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -127,10 +151,14 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				B716E8A3A2A80274169A5CBA /* APIService.swift in Sources */,
 				14D9A8D5B027ECC6101DF8B7 /* CameraManager.swift in Sources */,
 				A5588CF69D396E96343CE8D8 /* CameraPreviewView.swift in Sources */,
+				574EA35FA54F9BC204B53D42 /* CaptureSetupView.swift in Sources */,
 				1E401F4A3D6607B480FEE10D /* ContentView.swift in Sources */,
+				53A979C5480EFB29750ACA10 /* Models.swift in Sources */,
 				721E69FAA4AD57F6FB30BCE5 /* SpecimenCameraApp.swift in Sources */,
+				7FE1DA0203E7B19AE21C2473 /* TileCaptureView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

@@ -19,7 +19,7 @@ class CameraManager: NSObject, ObservableObject {
     @Published var isRAWSupported = false
 
     // Store photo data for saving
-    private var capturedJpegData: Data?
+    var capturedJpegData: Data?
     private var capturedDngData: Data?
 
     struct SaveResult {
