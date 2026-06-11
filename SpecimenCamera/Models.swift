@@ -1,9 +1,10 @@
 import Foundation
+import UIKit
 
 // MARK: - API Configuration
 
 struct APIConfig {
-    static let baseURL = "https://specimen.example.com"
+    static let baseURL = "http://192.168.3.31:8903"
     static var activeBaseURL: String {
         UserDefaults.standard.string(forKey: "api_base_url") ?? baseURL
     }

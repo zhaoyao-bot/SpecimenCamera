@@ -11,12 +11,11 @@ struct ContentView: View {
                 VStack(spacing: 20) {
                     // App title
                     VStack(spacing: 8) {
-                        Image("Icon-1024")
+                        Image(systemName: "camera.metering.matrix")
                             .resizable()
                             .aspectRatio(contentMode: .fit)
                             .frame(width: 80, height: 80)
-                            .clipShape(RoundedRectangle(cornerRadius: 18))
-                            .shadow(radius: 4)
+                            .foregroundColor(.blue)
 
                         Text("标本相机")
                             .font(.title2)
@@ -32,7 +31,7 @@ struct ContentView: View {
                         NavigationLink {
                             CaptureSetupView()
                         } label: {
-                            featureCard(icon: "microscope.fill",
+                            featureCard(icon: "telescope.fill",
                                         title: "标本录制",
                                         subtitle: "选择标本、配置参数、拍摄瓦片",
                                         color: .blue)

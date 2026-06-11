@@ -30,7 +30,11 @@
 	<dict>
 		<key>NSAllowsArbitraryLoads</key>
 		<true/>
+		<key>NSAllowsLocalNetworking</key>
+		<true/>
 	</dict>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>需要访问局域网以连接标本数据服务器</string>
 	<key>UILaunchScreen</key>
 	<dict>
 		<key>UIColorName</key>

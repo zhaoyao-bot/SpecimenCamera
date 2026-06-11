@@ -97,7 +97,9 @@ struct CaptureSetupView: View {
                 await loadData()
             }
             .navigationDestination(isPresented: $navigateToCapture) {
-                TileCaptureView(config: captureConfig!)
+                if let config = captureConfig {
+                    TileCaptureView(config: config)
+                }
             }
             .sheet(isPresented: $showNewStackSheet) {
                 NewStackView(specimenId: currentSpecimenId ?? 0,
@@ -218,7 +220,7 @@ struct CaptureSetupView: View {
                 }
             }
             .pickerStyle(.menu)
-            .onChange(of: selectedSpecimenIndex) { _ in
+            .onChange(of: selectedSpecimenIndex) {
                 selectedRatioIndex = nil
                 selectedStackIndex = nil
                 stacks = []
@@ -238,7 +240,7 @@ struct CaptureSetupView: View {
                 }
             }
             .pickerStyle(.menu)
-            .onChange(of: selectedRatioIndex) { _ in
+            .onChange(of: selectedRatioIndex) {
                 Task { await loadStacks() }
             }
         }

@@ -2,14 +2,14 @@ name: SpecimenCamera
 options:
   bundleIdPrefix: com.worklife
   deploymentTarget:
-    iOS: "15.0"
-  xcodeVersion: "15.0"
+    iOS: "18.0"
+  xcodeVersion: "16.0"
   generateEmptyDirectories: true
 
 settings:
   base:
-    SWIFT_VERSION: "5.9"
-    IPHONEOS_DEPLOYMENT_TARGET: "15.0"
+    SWIFT_VERSION: "6.0"
+    IPHONEOS_DEPLOYMENT_TARGET: "18.0"
     TARGETED_DEVICE_FAMILY: "1"
 
 targets:

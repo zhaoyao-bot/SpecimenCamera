@@ -54,7 +54,7 @@ class APIService: ObservableObject {
 
     private func uploadMultipart(_ path: String,
                                   fields: [String: String],
-                                  files: [String: (Data, String, String)] = []) async throws -> SpecimenTile {
+                                 files: [(String, Data, String)] = []) async throws -> SpecimenTile {
         let boundary = "Boundary-\(UUID().uuidString)"
         let url = URL(string: "\(baseURL)\(path)")!
 
@@ -184,7 +184,7 @@ class APIService: ObservableObject {
 
         return try await uploadMultipart("/manager/specimen-tiles/mid",
                                           fields: fields,
-                                          files: files.map { ($0, $1, $2) })
+                                          files: files)
     }
 
     // MARK: - Fetch Tile Image
