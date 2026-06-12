@@ -50,22 +50,22 @@ struct CaptureSetupView: View {
                         specimenRatioRow
                     }
 
-                    // 2. Material pack (stack)
+                    // 2. Collection info
+                    sectionCard(icon: "calendar.badge.clock", title: "采集信息") {
+                        collectionInfo
+                    }
+
+                    // 3. Material pack (stack)
                     sectionCard(icon: "square.stack.3d.up.fill", title: "素材包") {
                         stackPicker
                     }
 
-                    // 3. Light parameters (when stack selected) — cascade in
+                    // 4. Light parameters (when stack selected) — cascade in
                     if selectedStackIndex != nil {
                         sectionCard(icon: "light.max", title: "光学参数") {
                             lightParameters
                         }
                         .transition(.move(edge: .top).combined(with: .opacity))
-                    }
-
-                    // 4. Collection info
-                    sectionCard(icon: "calendar.badge.clock", title: "采集信息") {
-                        collectionInfo
                     }
 
                     // 5. Start capture button — cascade in

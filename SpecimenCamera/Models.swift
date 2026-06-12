@@ -118,7 +118,9 @@ struct SpecimenTile: Codable, Identifiable {
     enum CodingKeys: String, CodingKey {
         case id, direction, collector, status
         case specimenId, ratioId, seqId, parentSeq, stackId
-        case collectionDate, canvasImage, cameraImage, updateTime
+        case collectionDate, updateTime
+        case canvasImage = "locMidOriCanvas"
+        case cameraImage = "locMidOriCamera"
     }
 }
 
@@ -134,9 +136,19 @@ struct TileQueueItem: Identifiable {
     let timestamp: Date
 
     enum Direction: String, CaseIterable, Codable {
-        case up = "上"
-        case down = "下"
-        case left = "左"
-        case right = "右"
+        case up = "top"
+        case down = "bottom"
+        case left = "left"
+        case right = "right"
+
+        /// Chinese display name for UI
+        var displayName: String {
+            switch self {
+            case .up: return "上"
+            case .down: return "下"
+            case .left: return "左"
+            case .right: return "右"
+            }
+        }
     }
 }

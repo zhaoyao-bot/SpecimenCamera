@@ -9,12 +9,13 @@ struct TileCaptureView: View {
 
     // Tile queue
     @State private var tileQueue: [TileQueueItem] = []
-    @State private var direction: TileQueueItem.Direction = .up
+    @State private var direction: TileQueueItem.Direction = .down
     @State private var parentSeq: Int = 0
     @State private var seqId: Int = 1
 
     // Parent overlay
     @State private var parentImage: UIImage?
+    @State private var isLoadingParent = false
 
     // Upload state
     @State private var isUploading = false
@@ -56,7 +57,7 @@ struct TileCaptureView: View {
                             Image(uiImage: parentImg)
                                 .resizable()
                                 .aspectRatio(contentMode: .fit)
-                                .opacity(0.4)
+                                .opacity(0.35)
                                 .blendMode(.screen)
                                 .allowsHitTesting(false)
                                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -248,7 +249,7 @@ struct TileCaptureView: View {
                 Text("方向")
                     .font(.system(size: 11, weight: .medium))
                     .foregroundColor(.white.opacity(0.6))
-                Text(direction.rawValue)
+                Text(direction.displayName)
                     .font(.system(size: 22, weight: .bold, design: .rounded))
                     .foregroundColor(WarmTheme.accent)
             }
@@ -271,7 +272,7 @@ struct TileCaptureView: View {
                     VStack(spacing: 2) {
                         Image(systemName: directionIcon(for: dir))
                             .font(.system(size: 16, weight: .semibold))
-                        Text(dir.rawValue)
+                        Text(dir.displayName)
                             .font(.system(size: 12, weight: .bold, design: .rounded))
                     }
                     .foregroundColor(direction == dir ? WarmTheme.deep : .white.opacity(0.8))
@@ -310,22 +311,30 @@ struct TileCaptureView: View {
         HStack {
             // View parent image button
             Button {
-                loadParentImage()
+                Task { await loadParentImage() }
             } label: {
                 VStack(spacing: 5) {
                     ZStack {
                         Circle()
                             .fill(WarmTheme.accent.opacity(parentSeq > 0 ? 0.2 : 0.05))
                             .frame(width: 48, height: 48)
-                        Image(systemName: "photo.on.rectangle")
-                            .font(.system(size: 20))
+                        if isLoadingParent {
+                            ProgressView()
+                                .tint(WarmTheme.accent)
+                        } else if parentImage != nil {
+                            Image(systemName: "eye.fill")
+                                .font(.system(size: 20))
+                        } else {
+                            Image(systemName: "photo.on.rectangle")
+                                .font(.system(size: 20))
+                        }
                     }
-                    Text("父图")
+                    Text(parentImage != nil ? "隐藏父图" : "父图")
                         .font(.system(size: 11, weight: .medium))
                 }
                 .foregroundColor(parentSeq > 0 ? WarmTheme.accent : .gray)
             }
-            .disabled(parentSeq == 0)
+            .disabled(parentSeq == 0 && parentImage == nil)
 
             Spacer()
 
@@ -409,7 +418,7 @@ struct TileCaptureView: View {
                     HStack(spacing: 6) {
                         Image(systemName: "camera.fill")
                             .font(.system(size: 11))
-                        Text("\(direction.rawValue) | 父:\(parentSeq) | 序:\(seqId)")
+                        Text("\(direction.displayName) | 父:\(parentSeq) | 序:\(seqId)")
                             .font(.system(size: 13, weight: .bold, design: .rounded))
                     }
                     .foregroundColor(.white)
@@ -565,7 +574,7 @@ struct TileCaptureView: View {
                                             HStack(spacing: 4) {
                                                 Image(systemName: "arrow.right.circle")
                                                     .font(.system(size: 10))
-                                                Text("方向: \(tile.direction ?? "-")")
+                                                Text("方向: \(TileQueueItem.Direction(rawValue: tile.direction ?? "")?.displayName ?? tile.direction ?? "-")")
                                                 if let time = tile.updateTime {
                                                     Text(" · \(time)")
                                                         .foregroundColor(WarmTheme.textSecondary.opacity(0.6))
@@ -595,33 +604,38 @@ struct TileCaptureView: View {
                             Section {
                                 ForEach(tileQueue) { item in
                                     HStack(spacing: 12) {
-                                        ZStack {
-                                            Circle()
-                                                .fill(WarmTheme.success.opacity(0.15))
-                                                .frame(width: 40, height: 40)
-                                            Text("\(item.seqId)")
-                                                .font(.system(size: 14, weight: .bold, design: .rounded))
-                                                .foregroundColor(WarmTheme.success)
+                                        // Image on left (same layout as remote tiles)
+                                        if let img = item.cameraImage {
+                                            Image(uiImage: img)
+                                                .resizable()
+                                                .aspectRatio(contentMode: .fill)
+                                                .frame(width: 44, height: 44)
+                                                .clipShape(RoundedRectangle(cornerRadius: 8))
+                                                .overlay(
+                                                    RoundedRectangle(cornerRadius: 8)
+                                                        .stroke(WarmTheme.success.opacity(0.2), lineWidth: 1)
+                                                )
+                                        } else {
+                                            ZStack {
+                                                RoundedRectangle(cornerRadius: 8)
+                                                    .fill(WarmTheme.success.opacity(0.15))
+                                                    .frame(width: 44, height: 44)
+                                                Text("\(item.seqId)")
+                                                    .font(.system(size: 14, weight: .bold, design: .rounded))
+                                                    .foregroundColor(WarmTheme.success)
+                                            }
                                         }
                                         VStack(alignment: .leading, spacing: 3) {
                                             Text("序:\(item.seqId) | 父:\(item.parentSeq)")
                                                 .font(.system(size: 14, weight: .semibold, design: .rounded))
                                                 .foregroundColor(WarmTheme.textPrimary)
-                                            Text("方向: \(item.direction.rawValue)")
-                                                .font(.system(size: 12))
-                                                .foregroundColor(WarmTheme.textSecondary)
-                                        }
-                                        Spacer()
-                                        if let img = item.cameraImage {
-                                            Image(uiImage: img)
-                                                .resizable()
-                                                .aspectRatio(contentMode: .fill)
-                                                .frame(width: 40, height: 40)
-                                                .clipShape(RoundedRectangle(cornerRadius: 8))
-                                                .overlay(
-                                                    RoundedRectangle(cornerRadius: 8)
-                                                        .stroke(WarmTheme.accent.opacity(0.2), lineWidth: 1)
-                                                )
+                                            HStack(spacing: 4) {
+                                                Image(systemName: "arrow.right.circle")
+                                                    .font(.system(size: 10))
+                                                Text("方向: \(item.direction.displayName)")
+                                            }
+                                            .font(.system(size: 12))
+                                            .foregroundColor(WarmTheme.textSecondary)
                                         }
                                     }
                                     .padding(.vertical, 4)
@@ -658,6 +672,7 @@ struct TileCaptureView: View {
         guard let image = cameraManager.capturedImage else { return }
         isUploading = true
 
+        // Use same JPEG data for both canvasImage and cameraImage (compatible with old logic)
         let jpegData = image.jpegData(compressionQuality: 0.9)
         let dateFormatter = DateFormatter()
         dateFormatter.dateFormat = "yyyy-MM-dd'T'HH:mm:ss"
@@ -677,7 +692,7 @@ struct TileCaptureView: View {
                 collectionDate: dateFormatter.string(from: config.collectionDate),
                 collector: config.collector,
                 canvasImage: jpegData,
-                cameraImage: cameraManager.capturedJpegData
+                cameraImage: jpegData
             )
 
             // Add to local queue
@@ -712,23 +727,52 @@ struct TileCaptureView: View {
         // Observe save result via onChange
     }
 
-    private func loadParentImage() {
+    private func loadParentImage() async {
+        // Toggle: if already showing, hide it
+        if parentImage != nil {
+            parentImage = nil
+            return
+        }
         guard parentSeq > 0 else { return }
-        Task {
-            do {
-                let tiles = try await api.fetchTiles(
+        isLoadingParent = true
+
+        do {
+            // Find parent tile and get image URL directly from list data
+            var parentTile: SpecimenTile?
+            if let pt = remoteTiles.first(where: { $0.seqId == parentSeq }) {
+                parentTile = pt
+            } else {
+                // Fetch tiles list to find parent
+                let response = try await api.fetchTiles(
                     specimenId: config.specimenId,
                     ratioId: config.ratioId,
                     stackId: config.stackId
                 )
-                if let parentTile = tiles.tiles?.first(where: { $0.seqId == parentSeq }),
-                   let imageUrl = parentTile.cameraImage ?? parentTile.canvasImage {
-                    parentImage = try await api.fetchTileImage(urlString: imageUrl)
-                }
-            } catch {
-                print("加载父图失败: \(error)")
+                remoteTiles = response.tiles ?? []
+                parentTile = remoteTiles.first(where: { $0.seqId == parentSeq })
             }
+
+            if let pt = parentTile {
+                let imageUrl = pt.cameraImage ?? pt.canvasImage
+                if let imageUrl = imageUrl {
+                    print("🔍 Found parent image URL: \(imageUrl)")
+                    parentImage = try await api.fetchTileImage(urlString: imageUrl)
+                } else {
+                    print("❌ Parent tile has no image URL")
+                    toastIsSuccess = false
+                    toastMessage = "父图 #\(parentSeq) 无图片数据"
+                }
+            } else {
+                toastIsSuccess = false
+                toastMessage = "找不到父图 #\(parentSeq)"
+            }
+        } catch {
+            print("❌ 加载父图失败: \(error)")
+            toastIsSuccess = false
+            toastMessage = "加载父图失败: \(error.localizedDescription)"
         }
+
+        isLoadingParent = false
     }
 
     private func loadRemoteTiles() async {
@@ -741,22 +785,43 @@ struct TileCaptureView: View {
                 stackId: config.stackId
             )
             remoteTiles = response.tiles ?? []
+            print("✅ Loaded \(remoteTiles.count) remote tiles")
+
+            // Batch-load thumbnails concurrently from tile image URLs
+            var loadedThumbnails: [Int: UIImage] = [:]
+            await withTaskGroup(of: (Int, UIImage?).self) { group in
+                for tile in remoteTiles {
+                    group.addTask {
+                        let imageUrl = tile.cameraImage ?? tile.canvasImage
+                        if let imageUrl = imageUrl {
+                            do {
+                                let thumb = try await APIService.shared.fetchTileThumbnail(urlString: imageUrl)
+                                return (tile.id, thumb)
+                            } catch {
+                                print("  ⚠️ thumbnail load failed for tile #\(tile.seqId) (id:\(tile.id)): \(error)")
+                                return (tile.id, nil)
+                            }
+                        } else {
+                            print("  ⚠️ tile #\(tile.seqId) (id:\(tile.id)) has no image URL")
+                            return (tile.id, nil)
+                        }
+                    }
+                }
+                for await (id, thumb) in group {
+                    if let img = thumb {
+                        loadedThumbnails[id] = img
+                    }
+                }
+            }
+            remoteThumbnails = loadedThumbnails
+            print("✅ Loaded \(remoteThumbnails.count) thumbnails out of \(remoteTiles.count) tiles")
         } catch {
-            print("加载瓦片列表失败: \(error)")
+            print("❌ 加载瓦片列表失败: \(error)")
         }
         isLoadingTiles = false
     }
 
     private func loadRemoteThumbnail(tile: SpecimenTile) {
-        guard remoteThumbnails[tile.id] == nil,
-              let imageUrl = tile.cameraImage ?? tile.canvasImage else { return }
-        Task {
-            do {
-                let image = try await api.fetchTileImage(urlString: imageUrl)
-                remoteThumbnails[tile.id] = image
-            } catch {
-                // Silently fail — thumbnail will show seq badge instead
-            }
-        }
+        // No longer needed — thumbnails are batch-loaded in loadRemoteTiles
     }
 }

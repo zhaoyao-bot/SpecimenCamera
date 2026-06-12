@@ -206,12 +206,36 @@ class APIService: ObservableObject {
         return image
     }
 
+    /// Fetch tile image and downscale to thumbnail size for faster loading
+    func fetchTileThumbnail(urlString: String, maxSize: CGFloat = 88) async throws -> UIImage {
+        guard let url = URL(string: "\(baseURL)/manager/specimen-tiles/image?image_url=\(urlString.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? urlString)") else {
+            throw APIError.invalidURL
+        }
+        let (data, _) = try await URLSession.shared.data(from: url)
+        guard let image = UIImage(data: data) else {
+            throw APIError.invalidImage
+        }
+        // Downscale to thumbnail
+        let scale = min(maxSize / image.size.width, maxSize / image.size.height)
+        let newSize = CGSize(width: image.size.width * scale, height: image.size.height * scale)
+        let renderer = UIGraphicsImageRenderer(size: newSize)
+        let thumbnail = renderer.image { _ in
+            image.draw(in: CGRect(origin: .zero, size: newSize))
+        }
+        return thumbnail
+    }
+
     // MARK: - Fetch Tiles
 
     func fetchTiles(specimenId: Int, ratioId: Int, stackId: Int?) async throws -> TilesListResponse {
         var params = ["specimen_id": "\(specimenId)", "ratio_id": "\(ratioId)"]
         if let sid = stackId { params["stack_id"] = "\(sid)" }
         return try await request("/manager/specimen-tiles/list", queryParams: params)
+    }
+
+    /// Fetch a single tile by ID (returns full data including image URLs)
+    func fetchTileById(tileId: Int) async throws -> SpecimenTile {
+        return try await request("/manager/specimen-tiles/find/\(tileId)")
     }
 }
 
