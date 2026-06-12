@@ -16,6 +16,7 @@ struct TileCaptureView: View {
     // Parent overlay
     @State private var parentImage: UIImage?
     @State private var isLoadingParent = false
+    @State private var showParentOverlay = false
 
     // Upload state
     @State private var isUploading = false
@@ -52,15 +53,9 @@ struct TileCaptureView: View {
                             .frame(maxWidth: .infinity)
                             .clipped()
 
-                        // Parent image overlay — match preview frame
-                        if let parentImg = parentImage {
-                            Image(uiImage: parentImg)
-                                .resizable()
-                                .aspectRatio(contentMode: .fit)
-                                .opacity(0.35)
-                                .blendMode(.screen)
-                                .allowsHitTesting(false)
-                                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        // Parent image overlay — cropped and aligned by direction
+                        if let parentImg = parentImage, showParentOverlay {
+                            parentOverlayView(parentImg: parentImg, containerSize: geo.size)
                         }
                     }
                     .frame(width: geo.size.width, height: geo.size.height)
@@ -81,6 +76,21 @@ struct TileCaptureView: View {
         .task {
             if cameraManager.permissionStatus == .notDetermined {
                 cameraManager.requestPermission()
+            }
+            // Auto-load parent image if parentSeq > 0
+            if parentSeq > 0 {
+                await loadParentImage()
+            }
+        }
+        .onChange(of: parentSeq) { _, newSeq in
+            // When parentSeq changes to > 0 and no parent loaded, auto-load
+            if newSeq > 0 && parentImage == nil {
+                Task { await loadParentImage() }
+            }
+            // When parentSeq becomes 0, clear parent overlay
+            if newSeq == 0 {
+                parentImage = nil
+                showParentOverlay = false
             }
         }
         .overlay {
@@ -305,13 +315,92 @@ struct TileCaptureView: View {
         }
     }
 
+    // MARK: - Parent Overlay
+
+    /// Crop parent image to 5/8 portion based on direction and create overlay view
+    @MainActor
+    private func parentOverlayView(parentImg: UIImage, containerSize: CGSize) -> some View {
+        let croppedImage = cropParentImage(parentImg, direction: direction)
+
+        // Calculate how much of the container the cropped portion should cover
+        // The cropped portion is 5/8 of the original image, displayed at the same scale
+        // as a full image in .fit mode, so it covers 5/8 of the preview area
+        let previewRatio = 3.0 / 4.0
+        let isVertical = direction == .up || direction == .down
+
+        return ZStack(alignment: alignmentForDirection) {
+            if isVertical {
+                Image(uiImage: croppedImage)
+                    .resizable()
+                    .aspectRatio(contentMode: .fit)
+                    .opacity(0.35)
+                    .blendMode(.screen)
+                    .allowsHitTesting(false)
+                    .frame(height: containerSize.height * 5.0 / 8.0)
+            } else {
+                Image(uiImage: croppedImage)
+                    .resizable()
+                    .aspectRatio(contentMode: .fit)
+                    .opacity(0.35)
+                    .blendMode(.screen)
+                    .allowsHitTesting(false)
+                    .frame(width: containerSize.width * 5.0 / 8.0)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: alignmentForDirection)
+        .allowsHitTesting(false)
+    }
+
+    private var alignmentForDirection: Alignment {
+        switch direction {
+        case .down: return .top
+        case .up: return .bottom
+        case .right: return .leading
+        case .left: return .trailing
+        }
+    }
+
+    /// Crop parent image: take 5/8 portion based on direction
+    private func cropParentImage(_ image: UIImage, direction: TileQueueItem.Direction) -> UIImage {
+        let imgW = image.size.width
+        let imgH = image.size.height
+        let cropRect: CGRect
+
+        switch direction {
+        case .down:
+            // Bottom 5/8: from y=3/8 to y=8/8
+            let startY = imgH * (3.0 / 8.0)
+            cropRect = CGRect(x: 0, y: startY, width: imgW, height: imgH * (5.0 / 8.0))
+        case .up:
+            // Top 5/8: from y=0 to y=5/8
+            cropRect = CGRect(x: 0, y: 0, width: imgW, height: imgH * (5.0 / 8.0))
+        case .right:
+            // Right 5/8: from x=3/8 to x=8/8
+            let startX = imgW * (3.0 / 8.0)
+            cropRect = CGRect(x: startX, y: 0, width: imgW * (5.0 / 8.0), height: imgH)
+        case .left:
+            // Left 5/8: from x=0 to x=5/8
+            cropRect = CGRect(x: 0, y: 0, width: imgW * (5.0 / 8.0), height: imgH)
+        }
+
+        let renderer = UIGraphicsImageRenderer(size: cropRect.size)
+        return renderer.image { ctx in
+            image.draw(at: CGPoint(x: -cropRect.origin.x, y: -cropRect.origin.y))
+        }
+    }
+
     // MARK: - Bottom Controls
 
     private var bottomControls: some View {
         HStack {
             // View parent image button
             Button {
-                Task { await loadParentImage() }
+                if parentImage != nil {
+                    // Toggle overlay visibility
+                    showParentOverlay.toggle()
+                } else {
+                    Task { await loadParentImage() }
+                }
             } label: {
                 VStack(spacing: 5) {
                     ZStack {
@@ -321,7 +410,7 @@ struct TileCaptureView: View {
                         if isLoadingParent {
                             ProgressView()
                                 .tint(WarmTheme.accent)
-                        } else if parentImage != nil {
+                        } else if showParentOverlay && parentImage != nil {
                             Image(systemName: "eye.fill")
                                 .font(.system(size: 20))
                         } else {
@@ -329,7 +418,7 @@ struct TileCaptureView: View {
                                 .font(.system(size: 20))
                         }
                     }
-                    Text(parentImage != nil ? "隐藏父图" : "父图")
+                    Text(showParentOverlay && parentImage != nil ? "隐藏父图" : "父图")
                         .font(.system(size: 11, weight: .medium))
                 }
                 .foregroundColor(parentSeq > 0 ? WarmTheme.accent : .gray)
@@ -728,11 +817,6 @@ struct TileCaptureView: View {
     }
 
     private func loadParentImage() async {
-        // Toggle: if already showing, hide it
-        if parentImage != nil {
-            parentImage = nil
-            return
-        }
         guard parentSeq > 0 else { return }
         isLoadingParent = true
 
@@ -757,6 +841,7 @@ struct TileCaptureView: View {
                 if let imageUrl = imageUrl {
                     print("🔍 Found parent image URL: \(imageUrl)")
                     parentImage = try await api.fetchTileImage(urlString: imageUrl)
+                    showParentOverlay = true
                 } else {
                     print("❌ Parent tile has no image URL")
                     toastIsSuccess = false
