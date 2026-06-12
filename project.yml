@@ -32,3 +32,8 @@ targets:
         CODE_SIGN_ENTITLEMENTS: SpecimenCamera/SpecimenCamera.entitlements
         TARGETED_DEVICE_FAMILY: "1"
         SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD: "NO"
+      configs:
+        Debug:
+          CODE_SIGN_ENTITLEMENTS: SpecimenCamera/SpecimenCamera.entitlements
+        Release:
+          CODE_SIGN_ENTITLEMENTS: SpecimenCamera/SpecimenCameraRelease.entitlements

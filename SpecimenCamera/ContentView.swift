@@ -1,53 +1,84 @@
 import SwiftUI
 
+// MARK: - Warm Theme Colors
+
+struct WarmTheme {
+    static let primary = Color(red: 0.85, green: 0.55, blue: 0.25)      // Amber brown
+    static let accent = Color(red: 0.92, green: 0.65, blue: 0.30)      // Warm amber
+    static let deep = Color(red: 0.60, green: 0.35, blue: 0.15)        // Deep brown
+    static let light = Color(red: 0.98, green: 0.92, blue: 0.85)       // Warm cream
+    static let bgGradientTop = Color(red: 0.96, green: 0.88, blue: 0.78)
+    static let bgGradientBottom = Color(red: 0.92, green: 0.82, blue: 0.70)
+    static let cardBg = Color(red: 1.0, green: 0.97, blue: 0.93)
+    static let textPrimary = Color(red: 0.35, green: 0.20, blue: 0.10)
+    static let textSecondary = Color(red: 0.55, green: 0.40, blue: 0.25)
+    static let success = Color(red: 0.55, green: 0.75, blue: 0.35)
+}
+
 struct ContentView: View {
     @State private var showSpecimenCapture = false
 
     var body: some View {
         NavigationStack {
             ZStack {
-                Color(.systemGroupedBackground).ignoresSafeArea()
+                // Warm gradient background
+                LinearGradient(
+                    colors: [WarmTheme.bgGradientTop, WarmTheme.bgGradientBottom],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+                .ignoresSafeArea()
 
-                VStack(spacing: 20) {
-                    // App title
-                    VStack(spacing: 8) {
-                        Image(systemName: "camera.metering.matrix")
-                            .resizable()
-                            .aspectRatio(contentMode: .fit)
-                            .frame(width: 80, height: 80)
-                            .foregroundColor(.blue)
+                VStack(spacing: 0) {
+                    // App title area
+                    VStack(spacing: 12) {
+                        ZStack {
+                            Circle()
+                                .fill(WarmTheme.accent.opacity(0.15))
+                                .frame(width: 120, height: 120)
+                            Circle()
+                                .fill(WarmTheme.accent.opacity(0.08))
+                                .frame(width: 160, height: 160)
+                            Image(systemName: "camera.metering.matrix")
+                                .resizable()
+                                .aspectRatio(contentMode: .fit)
+                                .frame(width: 50, height: 50)
+                                .foregroundColor(WarmTheme.deep)
+                        }
 
                         Text("标本相机")
-                            .font(.title2)
-                            .fontWeight(.bold)
+                            .font(.system(size: 26, weight: .bold, design: .rounded))
+                            .foregroundColor(WarmTheme.textPrimary)
+
+                        Text("微观世界，尽在掌握")
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundColor(WarmTheme.textSecondary)
                     }
-                    .padding(.top, 60)
+                    .padding(.top, 80)
 
                     Spacer()
 
                     // Main features
-                    VStack(spacing: 16) {
-                        // Specimen recording
+                    VStack(spacing: 18) {
                         NavigationLink {
                             CaptureSetupView()
                         } label: {
-                            featureCard(icon: "telescope.fill",
+                            featureCard(icon: "binoculars.fill",
                                         title: "标本录制",
-                                        subtitle: "选择标本、配置参数、拍摄瓦片",
-                                        color: .blue)
+                                        subtitle: "选择标本 · 配置参数 · 拍摄瓦片",
+                                        gradient: [WarmTheme.primary, WarmTheme.deep])
                         }
 
-                        // Quick camera (original function)
                         NavigationLink {
                             QuickCameraView()
                         } label: {
                             featureCard(icon: "camera.fill",
                                         title: "快速拍照",
-                                        subtitle: "RAW+JPEG 拍摄，保存到相册",
-                                        color: .orange)
+                                        subtitle: "RAW+JPEG 拍摄 · 保存到相册",
+                                        gradient: [WarmTheme.accent, WarmTheme.primary])
                         }
                     }
-                    .padding(.horizontal, 20)
+                    .padding(.horizontal, 24)
 
                     Spacer()
 
@@ -55,53 +86,66 @@ struct ContentView: View {
                     NavigationLink {
                         APISettingsView()
                     } label: {
-                        HStack(spacing: 6) {
+                        HStack(spacing: 8) {
                             Image(systemName: "gearshape.fill")
-                                .font(.caption)
+                                .font(.system(size: 13))
                             Text("API 设置")
-                                .font(.caption)
+                                .font(.system(size: 13, weight: .medium))
                         }
-                        .foregroundColor(.secondary)
+                        .foregroundColor(WarmTheme.textSecondary)
+                        .padding(.vertical, 10)
+                        .padding(.horizontal, 16)
+                        .background(WarmTheme.cardBg.opacity(0.6))
+                        .clipShape(Capsule())
                     }
-                    .padding(.bottom, 30)
+                    .padding(.bottom, 40)
                 }
             }
             .navigationTitle("")
         }
     }
 
-    private func featureCard(icon: String, title: String, subtitle: String, color: Color) -> some View {
-        HStack(spacing: 16) {
-            Image(systemName: icon)
-                .font(.system(size: 28))
-                .foregroundColor(.white)
-                .frame(width: 56, height: 56)
-                .background(color)
-                .clipShape(RoundedRectangle(cornerRadius: 14))
+    private func featureCard(icon: String, title: String, subtitle: String, gradient: [Color]) -> some View {
+        HStack(spacing: 18) {
+            // Icon with gradient background
+            ZStack {
+                RoundedRectangle(cornerRadius: 16)
+                    .fill(
+                        LinearGradient(colors: gradient, startPoint: .topLeading, endPoint: .bottomTrailing)
+                    )
+                    .frame(width: 60, height: 60)
+                    .shadow(color: gradient.first!.opacity(0.3), radius: 6, y: 3)
 
-            VStack(alignment: .leading, spacing: 4) {
+                Image(systemName: icon)
+                    .font(.system(size: 26, weight: .medium))
+                    .foregroundColor(.white)
+            }
+
+            VStack(alignment: .leading, spacing: 5) {
                 Text(title)
-                    .font(.headline)
-                    .foregroundColor(.primary)
+                    .font(.system(size: 18, weight: .bold, design: .rounded))
+                    .foregroundColor(WarmTheme.textPrimary)
                 Text(subtitle)
-                    .font(.caption)
-                    .foregroundColor(.secondary)
+                    .font(.system(size: 13, weight: .regular))
+                    .foregroundColor(WarmTheme.textSecondary)
             }
 
             Spacer()
 
             Image(systemName: "chevron.right")
-                .font(.caption)
-                .foregroundColor(.secondary)
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundColor(WarmTheme.textSecondary.opacity(0.6))
         }
-        .padding(16)
-        .background(Color(.systemBackground))
-        .clipShape(RoundedRectangle(cornerRadius: 14))
-        .shadow(color: .black.opacity(0.05), radius: 4, y: 2)
+        .padding(18)
+        .background(
+            RoundedRectangle(cornerRadius: 18)
+                .fill(WarmTheme.cardBg)
+                .shadow(color: WarmTheme.deep.opacity(0.08), radius: 8, y: 4)
+        )
     }
 }
 
-// MARK: - Quick Camera View (Original)
+// MARK: - Quick Camera View
 
 struct QuickCameraView: View {
     @StateObject private var cameraManager = CameraManager()
@@ -142,12 +186,17 @@ struct QuickCameraView: View {
 
     @ViewBuilder
     private func permissionView(message: String) -> some View {
-        VStack(spacing: 20) {
-            Image(systemName: "camera.fill")
-                .font(.system(size: 60))
-                .foregroundColor(.gray)
+        VStack(spacing: 24) {
+            ZStack {
+                Circle()
+                    .fill(WarmTheme.accent.opacity(0.15))
+                    .frame(width: 100, height: 100)
+                Image(systemName: "camera.fill")
+                    .font(.system(size: 40, weight: .light))
+                    .foregroundColor(WarmTheme.accent)
+            }
             Text(message)
-                .font(.body)
+                .font(.system(size: 16, weight: .medium))
                 .foregroundColor(.white)
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, 40)
@@ -155,11 +204,11 @@ struct QuickCameraView: View {
             if cameraManager.permissionStatus == .notDetermined {
                 Button("授权相机") { cameraManager.requestPermission() }
                     .buttonStyle(.borderedProminent)
-                    .tint(.blue)
+                    .tint(WarmTheme.primary)
             } else {
                 Button("去设置") { cameraManager.openSettings() }
                     .buttonStyle(.borderedProminent)
-                    .tint(.blue)
+                    .tint(WarmTheme.primary)
             }
         }
     }
@@ -177,12 +226,13 @@ struct QuickCameraView: View {
                 VStack(spacing: 16) {
                     if cameraManager.isRAWSupported {
                         Text("RAW")
-                            .font(.caption2)
-                            .fontWeight(.bold)
+                            .font(.system(size: 11, weight: .bold, design: .rounded))
                             .foregroundColor(.white)
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 3)
-                            .background(Color.orange)
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 4)
+                            .background(
+                                LinearGradient(colors: [WarmTheme.accent, WarmTheme.primary], startPoint: .leading, endPoint: .trailing)
+                            )
                             .clipShape(Capsule())
                     }
                     captureButton
@@ -208,11 +258,14 @@ struct QuickCameraView: View {
         } label: {
             ZStack {
                 Circle()
-                    .strokeBorder(Color.white, lineWidth: 4)
-                    .frame(width: 70, height: 70)
+                    .strokeBorder(WarmTheme.accent, lineWidth: 4)
+                    .frame(width: 72, height: 72)
                 Circle()
-                    .fill(Color.white)
-                    .frame(width: 58, height: 58)
+                    .fill(
+                        LinearGradient(colors: [.white, WarmTheme.light], startPoint: .top, endPoint: .bottom)
+                    )
+                    .frame(width: 60, height: 60)
+                    .shadow(color: WarmTheme.accent.opacity(0.3), radius: 4, y: 2)
             }
             .scaleEffect(isPressed ? 0.9 : 1.0)
         }
@@ -233,12 +286,13 @@ struct QuickCameraView: View {
                 VStack {
                     HStack {
                         Text("RAW")
-                            .font(.caption2)
-                            .fontWeight(.bold)
+                            .font(.system(size: 11, weight: .bold, design: .rounded))
                             .foregroundColor(.white)
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 3)
-                            .background(Color.orange)
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 4)
+                            .background(
+                                LinearGradient(colors: [WarmTheme.accent, WarmTheme.primary], startPoint: .leading, endPoint: .trailing)
+                            )
                             .clipShape(Capsule())
                             .padding(.leading, 16)
                             .padding(.top, 8)
@@ -250,48 +304,54 @@ struct QuickCameraView: View {
 
             VStack {
                 Spacer()
-                HStack(spacing: 0) {
+                HStack(spacing: 14) {
                     Button {
                         cameraManager.discardPhoto()
                     } label: {
-                        HStack(spacing: 6) {
+                        HStack(spacing: 8) {
                             Image(systemName: "arrow.counterclockwise")
-                                .font(.system(size: 18, weight: .semibold))
+                                .font(.system(size: 20, weight: .semibold))
                             Text("重拍")
                                 .font(.system(size: 17, weight: .semibold))
                         }
                         .foregroundColor(.white)
                         .frame(maxWidth: .infinity)
-                        .padding(.vertical, 16)
-                        .background(Color.white.opacity(0.15))
-                        .clipShape(RoundedRectangle(cornerRadius: 12))
+                        .padding(.vertical, 18)
+                        .background(
+                            RoundedRectangle(cornerRadius: 14)
+                                .fill(Color.white.opacity(0.12))
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 14)
+                                        .stroke(Color.white.opacity(0.2), lineWidth: 1)
+                                )
+                        )
                     }
-
-                    Spacer().frame(width: 16)
 
                     Button {
                         cameraManager.saveToAlbum()
                     } label: {
-                        HStack(spacing: 6) {
+                        HStack(spacing: 8) {
                             if cameraManager.isSaving {
                                 ProgressView().tint(.white)
                             } else {
                                 Image(systemName: "square.and.arrow.down")
-                                    .font(.system(size: 18, weight: .semibold))
+                                    .font(.system(size: 20, weight: .semibold))
                             }
                             Text(cameraManager.isSaving ? "保存中" : "保存")
                                 .font(.system(size: 17, weight: .semibold))
                         }
                         .foregroundColor(.white)
                         .frame(maxWidth: .infinity)
-                        .padding(.vertical, 16)
-                        .background(Color.green.opacity(0.6))
-                        .clipShape(RoundedRectangle(cornerRadius: 12))
+                        .padding(.vertical, 18)
+                        .background(
+                            LinearGradient(colors: [WarmTheme.success, WarmTheme.success.opacity(0.8)], startPoint: .topLeading, endPoint: .bottomTrailing)
+                        )
+                        .clipShape(RoundedRectangle(cornerRadius: 14))
                     }
                     .disabled(cameraManager.isSaving)
                 }
-                .padding(.horizontal, 20)
-                .padding(.bottom, 40)
+                .padding(.horizontal, 24)
+                .padding(.bottom, 50)
             }
         }
         .animation(.easeOut(duration: 0.3), value: cameraManager.capturedImage != nil)
@@ -307,7 +367,10 @@ struct APISettingsView: View {
 
     var body: some View {
         Form {
-            Section(header: Text("服务器地址")) {
+            Section(header:
+                Text("服务器地址")
+                    .foregroundColor(WarmTheme.textSecondary)
+            ) {
                 TextField("https://specimen.example.com", text: $inputURL)
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
@@ -321,21 +384,29 @@ struct APISettingsView: View {
                     testResult = "已保存"
                 }
                 .disabled(inputURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                .tint(WarmTheme.primary)
             }
 
-            Section(header: Text("连接测试")) {
+            Section(header:
+                Text("连接测试")
+                    .foregroundColor(WarmTheme.textSecondary)
+            ) {
                 Button("测试连接") {
                     Task { await testConnection() }
                 }
+                .tint(WarmTheme.primary)
 
                 if let result = testResult {
                     Text(result)
                         .font(.caption)
-                        .foregroundColor(result.contains("成功") ? .green : .red)
+                        .foregroundColor(result.contains("成功") ? WarmTheme.success : .red)
                 }
             }
         }
+        .scrollContentBackground(.hidden)
+        .background(WarmTheme.bgGradientTop)
         .navigationTitle("API 设置")
+        .navigationBarTitleDisplayMode(.inline)
         .onAppear {
             inputURL = baseURL.isEmpty ? APIConfig.baseURL : baseURL
         }

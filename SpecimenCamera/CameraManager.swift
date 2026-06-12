@@ -52,7 +52,7 @@ class CameraManager: NSObject, ObservableObject {
 
     func requestPermission() {
         AVCaptureDevice.requestAccess(for: .video) { [weak self] granted in
-            Task { @MainActor in
+            DispatchQueue.main.async {
                 if granted {
                     self?.permissionStatus = .authorized
                     self?.setupCamera()
@@ -96,7 +96,7 @@ class CameraManager: NSObject, ObservableObject {
         let session = captureSession
         DispatchQueue.global(qos: .userInitiated).async {
             session.startRunning()
-            Task { @MainActor [weak self] in
+            DispatchQueue.main.async { [weak self] in
                 self?.isCameraReady = true
             }
         }
@@ -146,7 +146,7 @@ class CameraManager: NSObject, ObservableObject {
             performSave()
         case .notDetermined:
             PHPhotoLibrary.requestAuthorization(for: .addOnly) { [weak self] newStatus in
-                Task { @MainActor in
+                DispatchQueue.main.async {
                     if newStatus == .authorized || newStatus == .limited {
                         self?.performSave()
                     } else {
@@ -162,36 +162,18 @@ class CameraManager: NSObject, ObservableObject {
     }
 
     private func performSave() {
-        if let dngData = capturedDngData, let jpegData = capturedJpegData {
-            // Save JPEG + DNG as a single asset with RAW alternate
-            PHPhotoLibrary.shared().performChanges({
-                let creationRequest = PHAssetCreationRequest.forAsset()
-                creationRequest.addResource(with: .photo, data: jpegData, options: nil)
+        // Capture data on main thread before dispatching
+        let dngData = capturedDngData
+        let jpegData = capturedJpegData
 
-                let rawOptions = PHAssetResourceCreationOptions()
-                rawOptions.uniformTypeIdentifier = "com.adobe.raw-image"
-                creationRequest.addResource(with: .alternatePhoto, data: dngData, options: rawOptions)
-            }) { [weak self] success, error in
-                Task { @MainActor in
-                    self?.isSaving = false
-                    if success {
-                        self?.saveResult = SaveResult(success: true, message: "RAW+照片已保存到相册")
-                    } else {
-                        self?.saveJpegOnly(jpegData: jpegData, rawError: error?.localizedDescription)
-                    }
-                }
-            }
-        } else if let jpegData = capturedJpegData {
-            saveJpegOnly(jpegData: jpegData, rawError: nil)
-        } else if let dngData = capturedDngData {
-            // Only DNG — save as primary
+        if let dng = dngData {
             PHPhotoLibrary.shared().performChanges({
                 let request = PHAssetCreationRequest.forAsset()
                 let rawOptions = PHAssetResourceCreationOptions()
                 rawOptions.uniformTypeIdentifier = "com.adobe.raw-image"
-                request.addResource(with: .photo, data: dngData, options: rawOptions)
-            }) { [weak self] success, error in
-                Task { @MainActor in
+                request.addResource(with: .photo, data: dng, options: rawOptions)
+            }) { success, error in
+                DispatchQueue.main.async { [weak self] in
                     self?.isSaving = false
                     if success {
                         self?.saveResult = SaveResult(success: true, message: "RAW照片已保存到相册")
@@ -200,26 +182,24 @@ class CameraManager: NSObject, ObservableObject {
                     }
                 }
             }
+        } else if let jpeg = jpegData {
+            // Fallback: no DNG available, save JPEG
+            PHPhotoLibrary.shared().performChanges({
+                let request = PHAssetCreationRequest.forAsset()
+                request.addResource(with: .photo, data: jpeg, options: nil)
+            }) { success, error in
+                DispatchQueue.main.async { [weak self] in
+                    self?.isSaving = false
+                    if success {
+                        self?.saveResult = SaveResult(success: true, message: "照片已保存到相册")
+                    } else {
+                        self?.saveResult = SaveResult(success: false, message: "保存失败: \(error?.localizedDescription ?? "未知错误")")
+                    }
+                }
+            }
         } else {
             isSaving = false
             saveResult = SaveResult(success: false, message: "没有可保存的数据")
-        }
-    }
-
-    private func saveJpegOnly(jpegData: Data, rawError: String?) {
-        PHPhotoLibrary.shared().performChanges({
-            let request = PHAssetCreationRequest.forAsset()
-            request.addResource(with: .photo, data: jpegData, options: nil)
-        }) { [weak self] success, error in
-            Task { @MainActor in
-                self?.isSaving = false
-                if success {
-                    let msg = rawError != nil ? "照片已保存（RAW未保存: \(rawError!)）" : "照片已保存到相册"
-                    self?.saveResult = SaveResult(success: true, message: msg)
-                } else {
-                    self?.saveResult = SaveResult(success: false, message: "保存失败: \(error?.localizedDescription ?? "未知错误")")
-                }
-            }
         }
     }
 }
@@ -249,10 +229,10 @@ extension CameraManager: AVCapturePhotoCaptureDelegate {
                 }
             }
 
-            Task { @MainActor in
-                self.capturedDngData = dngData
-                if let preview = previewImage, self.capturedImage == nil {
-                    self.capturedImage = preview
+            DispatchQueue.main.async { [weak self] in
+                self?.capturedDngData = dngData
+                if let preview = previewImage, self?.capturedImage == nil {
+                    self?.capturedImage = preview
                 }
             }
         } else {
@@ -260,9 +240,9 @@ extension CameraManager: AVCapturePhotoCaptureDelegate {
             guard let data = photo.fileDataRepresentation(),
                   let image = UIImage(data: data) else { return }
 
-            Task { @MainActor in
-                self.capturedImage = image
-                self.capturedJpegData = data
+            DispatchQueue.main.async { [weak self] in
+                self?.capturedImage = image
+                self?.capturedJpegData = data
             }
         }
     }

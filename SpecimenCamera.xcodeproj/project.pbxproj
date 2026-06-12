@@ -27,6 +27,7 @@
 		552993F4C8006129D56C5D91 /* APIService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = APIService.swift; sourceTree = "<group>"; };
 		5BE3A394807742109E134F4A /* api.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = api.md; sourceTree = "<group>"; };
 		7E8F14A1BF27BF7AFBA1F722 /* CameraManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CameraManager.swift; sourceTree = "<group>"; };
+		9A9A64EC9FBCDD45368F52A5 /* SpecimenCameraRelease.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = SpecimenCameraRelease.entitlements; sourceTree = "<group>"; };
 		9CE198AE5C52B7C63EEA606D /* CameraPreviewView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CameraPreviewView.swift; sourceTree = "<group>"; };
 		A035DFCEBB2C47A6EE4D803F /* SpecimenCamera.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = SpecimenCamera.entitlements; sourceTree = "<group>"; };
 		A1CC5ADD95D3096350C55E3C /* Models.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Models.swift; sourceTree = "<group>"; };
@@ -73,6 +74,7 @@
 				A1CC5ADD95D3096350C55E3C /* Models.swift */,
 				A035DFCEBB2C47A6EE4D803F /* SpecimenCamera.entitlements */,
 				2444699080229A285AA695B6 /* SpecimenCameraApp.swift */,
+				9A9A64EC9FBCDD45368F52A5 /* SpecimenCameraRelease.entitlements */,
 				466C2517D535F38DA15A3515 /* TileCaptureView.swift */,
 				9A268DB6CA44E8C0410AEE1E /* docs */,
 			);
@@ -194,7 +196,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGNING_ALLOWED = YES;
 				CODE_SIGNING_REQUIRED = YES;
-				CODE_SIGN_ENTITLEMENTS = SpecimenCamera/SpecimenCamera.entitlements;
+				CODE_SIGN_ENTITLEMENTS = SpecimenCamera/SpecimenCameraRelease.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				DEVELOPMENT_TEAM = AMGXXNN866;

@@ -33,7 +33,9 @@ class APIService: ObservableObject {
         request.timeoutInterval = 30
 
         if let body = body {
-            request.httpBody = try JSONEncoder().encode(body)
+            let encoder = JSONEncoder()
+            encoder.keyEncodingStrategy = .convertToSnakeCase
+            request.httpBody = try encoder.encode(body)
         }
 
         let (data, response) = try await URLSession.shared.data(for: request)
@@ -47,7 +49,9 @@ class APIService: ObservableObject {
             throw APIError.serverError(msg)
         }
 
-        return try JSONDecoder().decode(T.self, from: data)
+        let decoder = JSONDecoder()
+        decoder.keyDecodingStrategy = .convertFromSnakeCase
+        return try decoder.decode(T.self, from: data)
     }
 
     // MARK: - Multipart Upload
@@ -93,7 +97,9 @@ class APIService: ObservableObject {
             throw APIError.serverError(msg)
         }
 
-        return try JSONDecoder().decode(SpecimenTile.self, from: data)
+        let decoder = JSONDecoder()
+        decoder.keyDecodingStrategy = .convertFromSnakeCase
+        return try decoder.decode(SpecimenTile.self, from: data)
     }
 
     // MARK: - Specimens
@@ -136,7 +142,7 @@ class APIService: ObservableObject {
         struct StackCreate: Encodable {
             let specimenId: Int
             let ratioId: Int
-            let stackName: String
+            let name: String
             let light: Double?
             let lightCircle: Double?
             let lightField: Int?
@@ -145,7 +151,7 @@ class APIService: ObservableObject {
                                   method: "POST",
                                   body: StackCreate(specimenId: specimenId,
                                                     ratioId: ratioId,
-                                                    stackName: stackName,
+                                                    name: stackName,
                                                     light: light,
                                                     lightCircle: lightCircle,
                                                     lightField: lightField))

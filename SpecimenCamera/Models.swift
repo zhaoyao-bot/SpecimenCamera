@@ -15,35 +15,61 @@ struct APIConfig {
 struct Specimen: Codable, Identifiable {
     let id: Int
     let name: String
-    let thirdId: String?
+    let thirdId: Int?
     let status: Int?
-    let createdAt: String?
-    let updatedAt: String?
+    let updateTime: String?
+
+    enum CodingKeys: String, CodingKey {
+        case id, name, status, thirdId, updateTime
+    }
 }
 
 struct SpecimenWithRatios: Codable {
     let id: Int
     let name: String
-    let thirdId: String?
+    let thirdId: Int?
     let status: Int?
-    let ratios: [SpecimenRatio]?
+    let updateTime: String?
+    /// e.g. ["40、1", "100、1", "400、3"] — "倍数、堆叠数"
+    let magnifications: [String]?
+
+    enum CodingKeys: String, CodingKey {
+        case id, name, status, magnifications, thirdId, updateTime
+    }
+
+    /// Parse magnification strings into (ratioName, stackCount) pairs
+    var parsedMagnifications: [(name: String, stackCount: Int)] {
+        magnifications?.compactMap { mag in
+            let parts = mag.components(separatedBy: "、")
+            guard parts.count == 2,
+                  let count = Int(parts[1]) else { return nil }
+            return (name: parts[0], stackCount: count)
+        } ?? []
+    }
 }
 
 struct SpecimenCollector: Codable, Identifiable {
-    var id: String { collector }
-    let collector: String
+    let id: Int
+    let name: String
+    let updateTime: String?
+
+    enum CodingKeys: String, CodingKey {
+        case id, name, updateTime
+    }
 }
 
 // MARK: - Specimen Ratio
 
 struct SpecimenRatio: Codable, Identifiable {
     let id: Int
-    let name: String
-    let specimenId: Int?
-    let ratio: String?
+    let ratio: String
+    let ruler: Double?
     let status: Int?
-    let createdAt: String?
-    let updatedAt: String?
+    let updateTime: String?
+
+    enum CodingKeys: String, CodingKey {
+        case id, ratio, ruler, status, updateTime
+    }
 }
 
 // MARK: - Material Pack (Stacked)
@@ -52,16 +78,24 @@ struct SpecimenTileStacked: Codable, Identifiable {
     let id: Int
     let specimenId: Int
     let ratioId: Int
-    let stackName: String?
+    let name: String?
     let light: Double?
     let lightCircle: Double?
     let lightField: Int?
-    let ruler: String?
+    let locX: Int?
+    let locY: Int?
     let status: Int?
     let locMid: String?
     let locTop: String?
-    let createdAt: String?
-    let updatedAt: String?
+    let updateTime: String?
+
+    enum CodingKeys: String, CodingKey {
+        case id, name, light, status, locMid, locTop
+        case specimenId, ratioId, lightCircle, lightField, locX, locY, updateTime
+    }
+
+    /// Display name: use `name` field, fallback to "Stack-{id}"
+    var stackName: String? { name ?? "Stack-\(id)" }
 }
 
 // MARK: - Specimen Tile
@@ -78,8 +112,14 @@ struct SpecimenTile: Codable, Identifiable {
     let collector: String?
     let canvasImage: String?
     let cameraImage: String?
-    let createdAt: String?
-    let updatedAt: String?
+    let status: Int?
+    let updateTime: String?
+
+    enum CodingKeys: String, CodingKey {
+        case id, direction, collector, status
+        case specimenId, ratioId, seqId, parentSeq, stackId
+        case collectionDate, canvasImage, cameraImage, updateTime
+    }
 }
 
 // MARK: - Tile Queue Item (Local)
@@ -98,6 +138,5 @@ struct TileQueueItem: Identifiable {
         case down = "下"
         case left = "左"
         case right = "右"
-        case center = "中"
     }
 }
