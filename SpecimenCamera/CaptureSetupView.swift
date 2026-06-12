@@ -189,7 +189,7 @@ struct CaptureSetupView: View {
     }
 
     private var canStartCapture: Bool {
-        selectedSpecimenIndex != nil && selectedRatioIndex != nil && selectedStackIndex != nil
+        selectedSpecimenIndex != nil && selectedRatioIndex != nil && selectedStackIndex != nil && selectedCollectorIndex != nil
     }
 
     private var captureConfig: CaptureConfig? {

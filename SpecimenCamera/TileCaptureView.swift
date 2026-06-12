@@ -18,7 +18,8 @@ struct TileCaptureView: View {
 
     // Upload state
     @State private var isUploading = false
-    @State private var uploadMessage: String?
+    @State private var toastMessage: String?
+    @State private var toastIsSuccess = true
 
     // Review mode
     @State private var isReviewing = false
@@ -27,6 +28,7 @@ struct TileCaptureView: View {
     @State private var showQueueSheet = false
     @State private var remoteTiles: [SpecimenTile] = []
     @State private var isLoadingTiles = false
+    @State private var remoteThumbnails: [Int: UIImage] = [:]
 
     // Focus state for dismissing keyboard
     @FocusState private var isFocused: Bool
@@ -42,21 +44,25 @@ struct TileCaptureView: View {
                 topBar
 
                 // Camera preview with parent overlay
-                ZStack {
-                    CameraPreviewView(session: cameraManager.captureSession)
-                        .aspectRatio(3/4, contentMode: .fit)
-                        .frame(maxWidth: .infinity)
-                        .clipped()
+                GeometryReader { geo in
+                    ZStack {
+                        CameraPreviewView(session: cameraManager.captureSession)
+                            .aspectRatio(3/4, contentMode: .fit)
+                            .frame(maxWidth: .infinity)
+                            .clipped()
 
-                    // Parent image overlay
-                    if let parentImg = parentImage {
-                        Image(uiImage: parentImg)
-                            .resizable()
-                            .aspectRatio(contentMode: .fit)
-                            .opacity(0.4)
-                            .blendMode(.screen)
-                            .allowsHitTesting(false)
+                        // Parent image overlay — match preview frame
+                        if let parentImg = parentImage {
+                            Image(uiImage: parentImg)
+                                .resizable()
+                                .aspectRatio(contentMode: .fit)
+                                .opacity(0.4)
+                                .blendMode(.screen)
+                                .allowsHitTesting(false)
+                                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        }
                     }
+                    .frame(width: geo.size.width, height: geo.size.height)
                 }
 
                 // Tile info panel
@@ -84,18 +90,42 @@ struct TileCaptureView: View {
         .sheet(isPresented: $showQueueSheet) {
             queueSheetView
         }
-        .alert("上传结果", isPresented: showUploadMessage, actions: {
-            Button("好") { uploadMessage = nil }
-        }, message: {
-            Text(uploadMessage ?? "")
-        })
+        .overlay(alignment: .top) {
+            if let msg = toastMessage {
+                HStack(spacing: 8) {
+                    Image(systemName: toastIsSuccess ? "checkmark.circle.fill" : "xmark.circle.fill")
+                        .font(.system(size: 16, weight: .semibold))
+                    Text(msg)
+                        .font(.system(size: 14, weight: .semibold, design: .rounded))
+                }
+                .foregroundColor(.white)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 10)
+                .background(
+                    Capsule()
+                        .fill(toastIsSuccess ? WarmTheme.success.opacity(0.9) : Color.red.opacity(0.85))
+                )
+                .padding(.top, 50)
+                .transition(.move(edge: .top).combined(with: .opacity))
+                .onAppear {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                        withAnimation(.easeOut(duration: 0.3)) {
+                            toastMessage = nil
+                        }
+                    }
+                }
+            }
+        }
+        .animation(.easeInOut(duration: 0.3), value: toastMessage)
+        .onChange(of: cameraManager.saveResult) { _, newValue in
+            if let result = newValue {
+                toastIsSuccess = result.success
+                toastMessage = result.message
+            }
+        }
         .onTapGesture {
             isFocused = false
         }
-    }
-
-    private var showUploadMessage: Binding<Bool> {
-        Binding(get: { uploadMessage != nil }, set: { if !$0 { uploadMessage = nil } })
     }
 
     // MARK: - Top Bar
@@ -501,14 +531,32 @@ struct TileCaptureView: View {
                             Section {
                                 ForEach(remoteTiles.reversed(), id: \.id) { tile in
                                     HStack(spacing: 12) {
-                                        // Seq badge
-                                        ZStack {
-                                            Circle()
-                                                .fill(WarmTheme.accent.opacity(0.15))
-                                                .frame(width: 40, height: 40)
-                                            Text("\(tile.seqId)")
-                                                .font(.system(size: 14, weight: .bold, design: .rounded))
-                                                .foregroundColor(WarmTheme.primary)
+                                        // Thumbnail or seq badge
+                                        if let thumb = remoteThumbnails[tile.id] {
+                                            Image(uiImage: thumb)
+                                                .resizable()
+                                                .aspectRatio(contentMode: .fill)
+                                                .frame(width: 44, height: 44)
+                                                .clipShape(RoundedRectangle(cornerRadius: 8))
+                                                .overlay(
+                                                    RoundedRectangle(cornerRadius: 8)
+                                                        .stroke(WarmTheme.accent.opacity(0.2), lineWidth: 1)
+                                                )
+                                        } else {
+                                            ZStack {
+                                                Circle()
+                                                    .fill(WarmTheme.accent.opacity(0.15))
+                                                    .frame(width: 44, height: 44)
+                                                if tile.cameraImage != nil || tile.canvasImage != nil {
+                                                    ProgressView()
+                                                        .scaleEffect(0.6)
+                                                        .tint(WarmTheme.primary)
+                                                } else {
+                                                    Text("\(tile.seqId)")
+                                                        .font(.system(size: 14, weight: .bold, design: .rounded))
+                                                        .foregroundColor(WarmTheme.primary)
+                                                }
+                                            }
                                         }
                                         VStack(alignment: .leading, spacing: 3) {
                                             Text("序:\(tile.seqId) | 父:\(tile.parentSeq)")
@@ -526,13 +574,11 @@ struct TileCaptureView: View {
                                             .font(.system(size: 12))
                                             .foregroundColor(WarmTheme.textSecondary)
                                         }
-                                        Spacer()
-                                        if tile.cameraImage != nil || tile.canvasImage != nil {
-                                            Image(systemName: "photo.fill")
-                                                .foregroundColor(WarmTheme.primary)
-                                        }
                                     }
                                     .padding(.vertical, 4)
+                                    .onAppear {
+                                        loadRemoteThumbnail(tile: tile)
+                                    }
                                 }
                             } header: {
                                 HStack(spacing: 6) {
@@ -649,11 +695,13 @@ struct TileCaptureView: View {
             parentSeq = currentSeqId
             seqId += 1
 
-            uploadMessage = "瓦片 #\(tile.seqId) 上传成功"
+            toastIsSuccess = true
+            toastMessage = "瓦片 #\(tile.seqId) 上传成功"
             cameraManager.discardPhoto()
             isReviewing = false
         } catch {
-            uploadMessage = "上传失败: \(error.localizedDescription)"
+            toastIsSuccess = false
+            toastMessage = "上传失败: \(error.localizedDescription)"
         }
 
         isUploading = false
@@ -661,6 +709,7 @@ struct TileCaptureView: View {
 
     private func saveToAlbum() {
         cameraManager.saveToAlbum()
+        // Observe save result via onChange
     }
 
     private func loadParentImage() {
@@ -684,6 +733,7 @@ struct TileCaptureView: View {
 
     private func loadRemoteTiles() async {
         isLoadingTiles = true
+        remoteThumbnails = [:]
         do {
             let response = try await api.fetchTiles(
                 specimenId: config.specimenId,
@@ -695,5 +745,18 @@ struct TileCaptureView: View {
             print("加载瓦片列表失败: \(error)")
         }
         isLoadingTiles = false
+    }
+
+    private func loadRemoteThumbnail(tile: SpecimenTile) {
+        guard remoteThumbnails[tile.id] == nil,
+              let imageUrl = tile.cameraImage ?? tile.canvasImage else { return }
+        Task {
+            do {
+                let image = try await api.fetchTileImage(urlString: imageUrl)
+                remoteThumbnails[tile.id] = image
+            } catch {
+                // Silently fail — thumbnail will show seq badge instead
+            }
+        }
     }
 }

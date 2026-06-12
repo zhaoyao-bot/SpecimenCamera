@@ -22,7 +22,7 @@ class CameraManager: NSObject, ObservableObject {
     var capturedJpegData: Data?
     private var capturedDngData: Data?
 
-    struct SaveResult {
+    struct SaveResult: Equatable {
         let success: Bool
         let message: String
     }
@@ -52,7 +52,7 @@ class CameraManager: NSObject, ObservableObject {
 
     func requestPermission() {
         AVCaptureDevice.requestAccess(for: .video) { [weak self] granted in
-            DispatchQueue.main.async {
+            Task { @MainActor in
                 if granted {
                     self?.permissionStatus = .authorized
                     self?.setupCamera()
@@ -96,7 +96,7 @@ class CameraManager: NSObject, ObservableObject {
         let session = captureSession
         DispatchQueue.global(qos: .userInitiated).async {
             session.startRunning()
-            DispatchQueue.main.async { [weak self] in
+            Task { @MainActor [weak self] in
                 self?.isCameraReady = true
             }
         }
@@ -140,18 +140,23 @@ class CameraManager: NSObject, ObservableObject {
         isSaving = true
         saveResult = nil
 
+        // Capture data values before leaving main actor
+        let dngData = capturedDngData
+        let jpegData = capturedJpegData
+
         let status = PHPhotoLibrary.authorizationStatus(for: .addOnly)
         switch status {
         case .authorized, .limited:
-            performSave()
+            performSaveNonisolated(dngData: dngData, jpegData: jpegData)
         case .notDetermined:
             PHPhotoLibrary.requestAuthorization(for: .addOnly) { [weak self] newStatus in
-                DispatchQueue.main.async {
-                    if newStatus == .authorized || newStatus == .limited {
-                        self?.performSave()
-                    } else {
-                        self?.isSaving = false
-                        self?.saveResult = SaveResult(success: false, message: "相册权限被拒绝")
+                guard let self else { return }
+                if newStatus == .authorized || newStatus == .limited {
+                    self.performSaveNonisolated(dngData: dngData, jpegData: jpegData)
+                } else {
+                    Task { @MainActor in
+                        self.isSaving = false
+                        self.saveResult = SaveResult(success: false, message: "相册权限被拒绝")
                     }
                 }
             }
@@ -161,45 +166,41 @@ class CameraManager: NSObject, ObservableObject {
         }
     }
 
-    private func performSave() {
-        // Capture data on main thread before dispatching
-        let dngData = capturedDngData
-        let jpegData = capturedJpegData
-
+    nonisolated private func performSaveNonisolated(dngData: Data?, jpegData: Data?) {
         if let dng = dngData {
             PHPhotoLibrary.shared().performChanges({
                 let request = PHAssetCreationRequest.forAsset()
                 let rawOptions = PHAssetResourceCreationOptions()
                 rawOptions.uniformTypeIdentifier = "com.adobe.raw-image"
                 request.addResource(with: .photo, data: dng, options: rawOptions)
-            }) { success, error in
-                DispatchQueue.main.async { [weak self] in
-                    self?.isSaving = false
-                    if success {
-                        self?.saveResult = SaveResult(success: true, message: "RAW照片已保存到相册")
-                    } else {
-                        self?.saveResult = SaveResult(success: false, message: "保存失败: \(error?.localizedDescription ?? "未知错误")")
-                    }
+            }) { [weak self] success, error in
+                Task { @MainActor in
+                    self?.handleSaveResult(success: success, error: error, isRaw: true)
                 }
             }
         } else if let jpeg = jpegData {
-            // Fallback: no DNG available, save JPEG
             PHPhotoLibrary.shared().performChanges({
                 let request = PHAssetCreationRequest.forAsset()
                 request.addResource(with: .photo, data: jpeg, options: nil)
-            }) { success, error in
-                DispatchQueue.main.async { [weak self] in
-                    self?.isSaving = false
-                    if success {
-                        self?.saveResult = SaveResult(success: true, message: "照片已保存到相册")
-                    } else {
-                        self?.saveResult = SaveResult(success: false, message: "保存失败: \(error?.localizedDescription ?? "未知错误")")
-                    }
+            }) { [weak self] success, error in
+                Task { @MainActor in
+                    self?.handleSaveResult(success: success, error: error, isRaw: false)
                 }
             }
         } else {
-            isSaving = false
-            saveResult = SaveResult(success: false, message: "没有可保存的数据")
+            Task { @MainActor [weak self] in
+                self?.isSaving = false
+                self?.saveResult = SaveResult(success: false, message: "没有可保存的数据")
+            }
+        }
+    }
+
+    private func handleSaveResult(success: Bool, error: Error?, isRaw: Bool) {
+        isSaving = false
+        if success {
+            saveResult = SaveResult(success: true, message: isRaw ? "RAW照片已保存到相册" : "照片已保存到相册")
+        } else {
+            saveResult = SaveResult(success: false, message: "保存失败: \(error?.localizedDescription ?? "未知错误")")
         }
     }
 }
@@ -229,10 +230,10 @@ extension CameraManager: AVCapturePhotoCaptureDelegate {
                 }
             }
 
-            DispatchQueue.main.async { [weak self] in
-                self?.capturedDngData = dngData
-                if let preview = previewImage, self?.capturedImage == nil {
-                    self?.capturedImage = preview
+            Task { @MainActor in
+                self.capturedDngData = dngData
+                if let preview = previewImage, self.capturedImage == nil {
+                    self.capturedImage = preview
                 }
             }
         } else {
@@ -240,9 +241,9 @@ extension CameraManager: AVCapturePhotoCaptureDelegate {
             guard let data = photo.fileDataRepresentation(),
                   let image = UIImage(data: data) else { return }
 
-            DispatchQueue.main.async { [weak self] in
-                self?.capturedImage = image
-                self?.capturedJpegData = data
+            Task { @MainActor in
+                self.capturedImage = image
+                self.capturedJpegData = data
             }
         }
     }

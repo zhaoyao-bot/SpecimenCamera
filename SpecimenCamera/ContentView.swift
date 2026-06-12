@@ -150,6 +150,8 @@ struct ContentView: View {
 struct QuickCameraView: View {
     @StateObject private var cameraManager = CameraManager()
     @State private var isPressed = false
+    @State private var toastMessage: String?
+    @State private var toastIsSuccess = true
 
     var body: some View {
         ZStack {
@@ -170,18 +172,39 @@ struct QuickCameraView: View {
         .toolbarBackground(.visible, for: .navigationBar)
         .toolbarBackground(Color.black, for: .navigationBar)
         .toolbarColorScheme(.dark, for: .navigationBar)
-        .alert("保存结果", isPresented: showSaveResult, actions: {
-            Button("好") { cameraManager.saveResult = nil }
-        }, message: {
-            Text(cameraManager.saveResult?.message ?? "")
-        })
-    }
-
-    private var showSaveResult: Binding<Bool> {
-        Binding(
-            get: { cameraManager.saveResult != nil },
-            set: { if !$0 { cameraManager.saveResult = nil } }
-        )
+        .overlay(alignment: .top) {
+            if let msg = toastMessage {
+                HStack(spacing: 8) {
+                    Image(systemName: toastIsSuccess ? "checkmark.circle.fill" : "xmark.circle.fill")
+                        .font(.system(size: 16, weight: .semibold))
+                    Text(msg)
+                        .font(.system(size: 14, weight: .semibold, design: .rounded))
+                }
+                .foregroundColor(.white)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 10)
+                .background(
+                    Capsule()
+                        .fill(toastIsSuccess ? WarmTheme.success.opacity(0.9) : Color.red.opacity(0.85))
+                )
+                .padding(.top, 50)
+                .transition(.move(edge: .top).combined(with: .opacity))
+                .onAppear {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                        withAnimation(.easeOut(duration: 0.3)) {
+                            toastMessage = nil
+                        }
+                    }
+                }
+            }
+        }
+        .animation(.easeInOut(duration: 0.3), value: toastMessage)
+        .onChange(of: cameraManager.saveResult) { _, newValue in
+            if let result = newValue {
+                toastIsSuccess = result.success
+                toastMessage = result.message
+            }
+        }
     }
 
     @ViewBuilder
@@ -337,7 +360,7 @@ struct QuickCameraView: View {
                                 Image(systemName: "square.and.arrow.down")
                                     .font(.system(size: 20, weight: .semibold))
                             }
-                            Text(cameraManager.isSaving ? "保存中" : "保存")
+                            Text(cameraManager.isSaving ? "保存中" : "保存到相册")
                                 .font(.system(size: 17, weight: .semibold))
                         }
                         .foregroundColor(.white)
@@ -376,12 +399,12 @@ struct APISettingsView: View {
                     .autocorrectionDisabled()
                     .keyboardType(.URL)
 
-                Button("保存") {
+                Button("保存到相册") {
                     let trimmed = inputURL.trimmingCharacters(in: .whitespacesAndNewlines)
                     if !trimmed.isEmpty {
                         baseURL = trimmed
                     }
-                    testResult = "已保存"
+                    testResult = "已保存到相册"
                 }
                 .disabled(inputURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 .tint(WarmTheme.primary)
