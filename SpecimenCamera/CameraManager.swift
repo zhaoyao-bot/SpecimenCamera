@@ -18,6 +18,11 @@ class CameraManager: NSObject, ObservableObject {
     @Published var saveResult: SaveResult?
     @Published var isRAWSupported = false
 
+    /// When false, only JPEG capture is used (e.g. calibration mode).
+    /// RAW+JPEG dual capture can cause the first delegate callback (pixel buffer)
+    /// to produce a dark/blank preview on some devices.
+    var preferRAW = true
+
     // Store photo data for saving
     var capturedJpegData: Data?
     private var capturedDngData: Data?
@@ -107,7 +112,7 @@ class CameraManager: NSObject, ObservableObject {
     func capturePhoto() {
         let settings: AVCapturePhotoSettings
 
-        if let rawFormat = photoOutput.availableRawPhotoPixelFormatTypes.first {
+        if preferRAW, let rawFormat = photoOutput.availableRawPhotoPixelFormatTypes.first {
             // RAW + JPEG capture: delegate will be called twice
             // - Once with isRawPhoto=true (fileDataRepresentation returns DNG)
             // - Once with isRawPhoto=false (fileDataRepresentation returns JPEG)

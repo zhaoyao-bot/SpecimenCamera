@@ -119,9 +119,23 @@ class APIService: ObservableObject {
                           queryParams: ["specimen_id": "\(specimenId)"])
     }
 
+    /// Fetch all specimen ratios (no specimen filter — for calibration)
+    func fetchAllRatios() async throws -> [SpecimenRatio] {
+        try await request("/manager/specimen-ratios/list")
+    }
+
     func fetchRatiosByTiles(specimenId: Int) async throws -> [SpecimenRatio] {
         try await request("/manager/specimen-tiles/ratio",
                           queryParams: ["specimen_id": "\(specimenId)"])
+    }
+
+    func updateRatioRuler(ratioId: Int, ruler: Double) async throws -> SpecimenRatio {
+        struct RulerUpdate: Encodable {
+            let ruler: Double
+        }
+        return try await request("/manager/specimen-ratios/\(ratioId)",
+                                  method: "PUT",
+                                  body: RulerUpdate(ruler: ruler))
     }
 
     // MARK: - Collectors

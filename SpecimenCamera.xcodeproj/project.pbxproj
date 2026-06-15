@@ -15,6 +15,7 @@
 		721E69FAA4AD57F6FB30BCE5 /* SpecimenCameraApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2444699080229A285AA695B6 /* SpecimenCameraApp.swift */; };
 		78EA0E18930965854EB955FE /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = F29EE177ABE4B5D5A15271D8 /* Assets.xcassets */; };
 		7FE1DA0203E7B19AE21C2473 /* TileCaptureView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 466C2517D535F38DA15A3515 /* TileCaptureView.swift */; };
+		8934F64AF4C7793EFA611EA2 /* CalibrationView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CEFD608CC9D4EF1873CCAD11 /* CalibrationView.swift */; };
 		A5588CF69D396E96343CE8D8 /* CameraPreviewView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9CE198AE5C52B7C63EEA606D /* CameraPreviewView.swift */; };
 		B716E8A3A2A80274169A5CBA /* APIService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 552993F4C8006129D56C5D91 /* APIService.swift */; };
 /* End PBXBuildFile section */
@@ -33,6 +34,7 @@
 		A1CC5ADD95D3096350C55E3C /* Models.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Models.swift; sourceTree = "<group>"; };
 		CC8C229572798A829204B6B8 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		CCDCA04D4506232017CAA5EF /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		CEFD608CC9D4EF1873CCAD11 /* CalibrationView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CalibrationView.swift; sourceTree = "<group>"; };
 		F29EE177ABE4B5D5A15271D8 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -66,6 +68,7 @@
 			children = (
 				552993F4C8006129D56C5D91 /* APIService.swift */,
 				F29EE177ABE4B5D5A15271D8 /* Assets.xcassets */,
+				CEFD608CC9D4EF1873CCAD11 /* CalibrationView.swift */,
 				7E8F14A1BF27BF7AFBA1F722 /* CameraManager.swift */,
 				9CE198AE5C52B7C63EEA606D /* CameraPreviewView.swift */,
 				16B05E590923975A02C9BA61 /* CaptureSetupView.swift */,
@@ -154,6 +157,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				B716E8A3A2A80274169A5CBA /* APIService.swift in Sources */,
+				8934F64AF4C7793EFA611EA2 /* CalibrationView.swift in Sources */,
 				14D9A8D5B027ECC6101DF8B7 /* CameraManager.swift in Sources */,
 				A5588CF69D396E96343CE8D8 /* CameraPreviewView.swift in Sources */,
 				574EA35FA54F9BC204B53D42 /* CaptureSetupView.swift in Sources */,

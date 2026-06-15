@@ -325,7 +325,6 @@ struct TileCaptureView: View {
         // Calculate how much of the container the cropped portion should cover
         // The cropped portion is 5/8 of the original image, displayed at the same scale
         // as a full image in .fit mode, so it covers 5/8 of the preview area
-        let previewRatio = 3.0 / 4.0
         let isVertical = direction == .up || direction == .down
 
         return ZStack(alignment: alignmentForDirection) {

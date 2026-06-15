@@ -70,6 +70,15 @@ struct ContentView: View {
                         }
 
                         NavigationLink {
+                            CalibrationSetupView()
+                        } label: {
+                            featureCard(icon: "ruler.fill",
+                                        title: "标定",
+                                        subtitle: "选择倍数 · 拍照标尺 · 两点测距",
+                                        gradient: [WarmTheme.success, Color(red: 0.40, green: 0.60, blue: 0.20)])
+                        }
+
+                        NavigationLink {
                             QuickCameraView()
                         } label: {
                             featureCard(icon: "camera.fill",
