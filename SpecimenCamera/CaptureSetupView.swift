@@ -38,6 +38,9 @@ struct CaptureSetupView: View {
     @State private var showStackPicker = false
     @State private var showCollectorPicker = false
 
+    // Search text for specimen picker
+    @State private var specimenSearchText = ""
+
     // Focus state for dismissing keyboard
     @FocusState private var isFocused: Bool
 
@@ -305,10 +308,12 @@ struct CaptureSetupView: View {
                         .clipShape(RoundedRectangle(cornerRadius: 8))
                     }
                     .frame(maxWidth: .infinity)
-                    .confirmationDialog("选择标本", isPresented: $showSpecimenPicker, titleVisibility: .visible) {
-                        ForEach(Array(specimens.enumerated()), id: \.offset) { idx, specimen in
-                            Button(specimen.name) { selectedSpecimenIndex = idx }
-                        }
+                    .sheet(isPresented: $showSpecimenPicker) {
+                        SpecimenPickerSheet(
+                            specimens: specimens,
+                            searchText: $specimenSearchText,
+                            selectedIndex: $selectedSpecimenIndex
+                        )
                     }
                 }
                 .frame(maxWidth: .infinity)
@@ -767,5 +772,113 @@ struct NewStackView: View {
             print("创建素材包失败: \(error)")
         }
         isCreating = false
+    }
+}
+
+// MARK: - Specimen Picker Sheet (带搜索)
+
+struct SpecimenPickerSheet: View {
+    let specimens: [SpecimenWithRatios]
+    @Binding var searchText: String
+    @Binding var selectedIndex: Int?
+    @Environment(\.dismiss) private var dismiss
+    @FocusState private var isSearchFocused: Bool
+
+    /// 仅按名称模糊匹配（不区分大小写）
+    private var filteredSpecimens: [(index: Int, specimen: SpecimenWithRatios)] {
+        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if query.isEmpty {
+            return Array(specimens.enumerated()).map { ($0.offset, $0.element) }
+        }
+        return specimens.enumerated().compactMap { idx, specimen in
+            specimen.name.lowercased().contains(query) ? (idx, specimen) : nil
+        }
+    }
+
+    var body: some View {
+        NavigationStack {
+            VStack(spacing: 0) {
+                // 搜索框
+                HStack(spacing: 8) {
+                    Image(systemName: "magnifyingglass")
+                        .foregroundColor(WarmTheme.textSecondary)
+                    TextField("搜索标本名称", text: $searchText)
+                        .focused($isSearchFocused)
+                        .autocorrectionDisabled()
+                        .textInputAutocapitalization(.never)
+                        .submitLabel(.search)
+                    if !searchText.isEmpty {
+                        Button {
+                            searchText = ""
+                        } label: {
+                            Image(systemName: "xmark.circle.fill")
+                                .foregroundColor(WarmTheme.textSecondary.opacity(0.6))
+                        }
+                    }
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 10)
+                .background(WarmTheme.light)
+                .clipShape(RoundedRectangle(cornerRadius: 10))
+                .padding(.horizontal, 16)
+                .padding(.top, 8)
+                .padding(.bottom, 12)
+
+                // 列表
+                if filteredSpecimens.isEmpty {
+                    VStack(spacing: 8) {
+                        Image(systemName: "tray")
+                            .font(.system(size: 40))
+                            .foregroundColor(WarmTheme.textSecondary.opacity(0.5))
+                        Text(specimens.isEmpty ? "暂无标本数据" : "未找到匹配的标本")
+                            .font(.system(size: 14))
+                            .foregroundColor(WarmTheme.textSecondary)
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else {
+                    List {
+                        ForEach(filteredSpecimens, id: \.index) { item in
+                            Button {
+                                selectedIndex = item.index
+                                dismiss()
+                            } label: {
+                                HStack(spacing: 10) {
+                                    Image(systemName: "leaf.fill")
+                                        .font(.system(size: 14))
+                                        .foregroundColor(WarmTheme.success)
+                                    Text(item.specimen.name)
+                                        .font(.system(size: 15, weight: .medium))
+                                        .foregroundColor(WarmTheme.textPrimary)
+                                    Spacer()
+                                    if selectedIndex == item.index {
+                                        Image(systemName: "checkmark.circle.fill")
+                                            .font(.system(size: 18))
+                                            .foregroundColor(WarmTheme.success)
+                                    }
+                                }
+                                .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                    .listStyle(.plain)
+                }
+            }
+            .background(
+                LinearGradient(colors: [WarmTheme.bgGradientTop, WarmTheme.bgGradientBottom], startPoint: .topLeading, endPoint: .bottomTrailing)
+                    .ignoresSafeArea()
+            )
+            .navigationTitle("选择标本")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("取消") { dismiss() }
+                        .foregroundColor(WarmTheme.primary)
+                }
+            }
+        }
+        .onAppear {
+            isSearchFocused = true
+        }
     }
 }
