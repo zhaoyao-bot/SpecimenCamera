@@ -60,8 +60,11 @@ class CameraManager: NSObject, ObservableObject {
         }
 
         /// 该机型是否具备这个物理镜头(没有的机型会禁用对应选项)
+        /// 用 DiscoverySession 比 AVCaptureDevice.default 更可靠，能正确列出机型实际具备的物理镜头
         var isAvailable: Bool {
-            AVCaptureDevice.default(deviceType, for: .video, position: .back) != nil
+            AVCaptureDevice.DiscoverySession(deviceTypes: [deviceType],
+                                             mediaType: .video,
+                                             position: .back).devices.first != nil
         }
     }
 
@@ -161,7 +164,15 @@ class CameraManager: NSObject, ObservableObject {
         }
     }
 
-    // MARK: - Lens Switching (主摄 / 长焦)
+    // MARK: - Lens Switching (超广角 / 主摄 / 长焦)
+
+    /// 用 DiscoverySession 查找指定镜头的物理设备(比 AVCaptureDevice.default 更可靠，
+    /// 能列出机型实际具备的镜头，避免某些机型 default 返回 nil)
+    private func device(for lens: LensType) -> AVCaptureDevice? {
+        AVCaptureDevice.DiscoverySession(deviceTypes: [lens.deviceType],
+                                         mediaType: .video,
+                                         position: .back).devices.first
+    }
 
     /// 建立(或切换)指定镜头的输入。成功返回 true。
     /// 会移除旧输入、加入新设备输入，并锁最小变焦(1x)防止视角/畸变变化。
@@ -169,7 +180,7 @@ class CameraManager: NSObject, ObservableObject {
     @discardableResult
     private func configureInput(for lens: LensType) -> Bool {
         // 先准备好新设备与输入，成功后才移除旧的 —— 避免切换失败时 session 没有输入导致黑屏
-        guard let device = AVCaptureDevice.default(lens.deviceType, for: .video, position: .back),
+        guard let device = device(for: lens),
               let input = try? AVCaptureDeviceInput(device: device) else {
             return false
         }
@@ -203,13 +214,19 @@ class CameraManager: NSObject, ObservableObject {
     func switchLens(to lens: LensType) {
         guard lens != currentLens else { return }
         // 机型没有该物理镜头时不允许切换
-        guard lens.isAvailable else { return }
+        guard lens.isAvailable else {
+            print("⚠️ 切换镜头失败：当前机型没有\(lens.displayName)镜头")
+            return
+        }
 
         captureSession.beginConfiguration()
         let ok = configureInput(for: lens)
         captureSession.commitConfiguration()
 
-        guard ok else { return } // 切换失败则保持原镜头
+        guard ok else {
+            print("⚠️ 切换镜头失败：无法将\(lens.displayName)加入采集会话")
+            return // 切换失败则保持原镜头
+        }
         currentLens = lens
         isRAWSupported = !photoOutput.availableRawPhotoPixelFormatTypes.isEmpty
 

@@ -22,7 +22,7 @@
 
 /* Begin PBXFileReference section */
 		16B05E590923975A02C9BA61 /* CaptureSetupView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaptureSetupView.swift; sourceTree = "<group>"; };
-		1DEDEDF9C670694E4696ACEF /* SpecimenCamera.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = SpecimenCamera.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		1DEDEDF9C670694E4696ACEF /* SpecimenCamera.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = SpecimenCamera.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		2444699080229A285AA695B6 /* SpecimenCameraApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpecimenCameraApp.swift; sourceTree = "<group>"; };
 		466C2517D535F38DA15A3515 /* TileCaptureView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TileCaptureView.swift; sourceTree = "<group>"; };
 		552993F4C8006129D56C5D91 /* APIService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = APIService.swift; sourceTree = "<group>"; };
@@ -115,7 +115,6 @@
 				LastUpgradeCheck = 1600;
 				TargetAttributes = {
 					EB62691C755E898AF17F5A60 = {
-						DevelopmentTeam = AMGXXNN866;
 						ProvisioningStyle = Automatic;
 					};
 				};
@@ -180,7 +179,7 @@
 				CODE_SIGN_ENTITLEMENTS = SpecimenCamera/SpecimenCamera.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
-				DEVELOPMENT_TEAM = AMGXXNN866;
+				DEVELOPMENT_TEAM = MBC9WKF58R;
 				INFOPLIST_FILE = SpecimenCamera/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -203,7 +202,7 @@
 				CODE_SIGN_ENTITLEMENTS = SpecimenCamera/SpecimenCameraRelease.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
-				DEVELOPMENT_TEAM = AMGXXNN866;
+				DEVELOPMENT_TEAM = MBC9WKF58R;
 				INFOPLIST_FILE = SpecimenCamera/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",

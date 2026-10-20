@@ -68,11 +68,12 @@ struct LensSwitchPicker: View {
             VStack(spacing: 1) {
                 Text(lens.displayName)
                     .font(.system(size: 11, weight: .bold, design: .rounded))
-                Text(lens.hint)
+                // 机型没有该镜头时明确显示"机型不支持"，避免用户以为可点却没反应
+                Text(unavailable ? "机型不支持" : lens.hint)
                     .font(.system(size: 7.5, weight: .medium))
                     .opacity(0.75)
             }
-            .foregroundColor(isSelected ? .white : .white.opacity(0.55))
+            .foregroundColor(unavailable ? .gray : (isSelected ? .white : .white.opacity(0.55)))
             .padding(.horizontal, 8)
             .padding(.vertical, 5)
             .background(
@@ -80,6 +81,6 @@ struct LensSwitchPicker: View {
             )
         }
         .disabled(unavailable || isSelected)
-        .opacity(unavailable ? 0.35 : 1)
+        .opacity(unavailable ? 0.3 : 1)
     }
 }
