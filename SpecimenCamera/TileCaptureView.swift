@@ -26,6 +26,9 @@ struct TileCaptureView: View {
     // Review mode
     @State private var isReviewing = false
 
+    // parentSeq 变化的 debounce Task(1 秒节流加载父图，避免输入过程多次触发加载)
+    @State private var parentLoadTask: Task<Void, Never>?
+
     // Queue sheet
     @State private var showQueueSheet = false
     @State private var remoteTiles: [SpecimenTile] = []
@@ -92,15 +95,24 @@ struct TileCaptureView: View {
             }
         }
         .onChange(of: parentSeq) { _, newSeq in
-            // When parentSeq changes to > 0 and no parent loaded, auto-load
-            if newSeq > 0 && parentImage == nil {
-                Task { await loadParentImage() }
-            }
-            // When parentSeq becomes 0, clear parent overlay
-            if newSeq == 0 {
+            // 取消上一次的 debounce 任务(快速输入时只加载最后一次)
+            parentLoadTask?.cancel()
+            if newSeq > 0 {
+                parentLoadTask = Task {
+                    // 1 秒内若无新变化再加载，避免 TextField 输入过程中闪 toast
+                    try? await Task.sleep(for: .seconds(1))
+                    if Task.isCancelled { return }
+                    await loadParentImage()
+                }
+            } else {
+                // 显式归零时立即清空父图
                 parentImage = nil
                 showParentOverlay = false
             }
+        }
+        .onDisappear {
+            // 离开页面时取消未完成的加载任务
+            parentLoadTask?.cancel()
         }
         .overlay {
             if isReviewing, cameraManager.capturedImage != nil {
@@ -848,8 +860,10 @@ struct TileCaptureView: View {
                 let imageUrl = pt.cameraImage ?? pt.canvasImage
                 if let imageUrl = imageUrl {
                     print("🔍 Found parent image URL: \(imageUrl)")
+                    // 记录加载前是否已有图：首次加载自动显示，已有图则尊重用户当前的显示/隐藏选择
+                    let wasEmpty = (parentImage == nil)
                     parentImage = try await api.fetchTileImage(urlString: imageUrl)
-                    showParentOverlay = true
+                    if wasEmpty { showParentOverlay = true }
                 } else {
                     print("❌ Parent tile has no image URL")
                     toastIsSuccess = false

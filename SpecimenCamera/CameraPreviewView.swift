@@ -59,21 +59,21 @@ struct LensSwitchPicker: View {
 
     private func lensButton(_ lens: CameraManager.LensType) -> some View {
         let isSelected = cameraManager.currentLens == lens
-        // 机型没有长焦镜头时禁用该选项
-        let unavailable = lens == .telephoto && !cameraManager.isTelephotoAvailable
+        // 机型没有该物理镜头时禁用该选项
+        let unavailable = !lens.isAvailable
 
         return Button {
             cameraManager.switchLens(to: lens)
         } label: {
             VStack(spacing: 1) {
                 Text(lens.displayName)
-                    .font(.system(size: 12, weight: .bold, design: .rounded))
+                    .font(.system(size: 11, weight: .bold, design: .rounded))
                 Text(lens.hint)
-                    .font(.system(size: 8, weight: .medium))
+                    .font(.system(size: 7.5, weight: .medium))
                     .opacity(0.75)
             }
             .foregroundColor(isSelected ? .white : .white.opacity(0.55))
-            .padding(.horizontal, 12)
+            .padding(.horizontal, 8)
             .padding(.vertical, 5)
             .background(
                 Capsule().fill(isSelected ? WarmTheme.accent.opacity(0.55) : Color.clear)

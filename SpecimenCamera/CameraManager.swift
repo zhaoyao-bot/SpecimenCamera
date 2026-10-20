@@ -23,8 +23,10 @@ class CameraManager: NSObject, ObservableObject {
     /// to produce a dark/blank preview on some devices.
     var preferRAW = true
 
-    /// 可选物理镜头
+    /// 可选物理镜头(三摄：超广角 0.5x / 主摄 1x / 长焦 2x~3x)
+    /// 注意：主摄(wide)本身就是"广角"镜头，所以第三个头标为"超广角"(ultraWide, 0.5x)以免混淆。
     enum LensType: String, CaseIterable, Identifiable {
+        case ultraWide
         case wide
         case telephoto
 
@@ -33,6 +35,7 @@ class CameraManager: NSObject, ObservableObject {
         /// 界面显示名
         var displayName: String {
             switch self {
+            case .ultraWide: return "超广角"
             case .wide: return "主摄"
             case .telephoto: return "长焦"
             }
@@ -41,29 +44,31 @@ class CameraManager: NSObject, ObservableObject {
         /// 界面副标题(该镜头的特点，帮助用户选择)
         var hint: String {
             switch self {
-            case .wide: return "畸变最小 · 弱光最好"
-            case .telephoto: return "填满画面 · 放大更高"
+            case .ultraWide: return "视野广·畸变大"
+            case .wide: return "畸变小·弱光好"
+            case .telephoto: return "填满画面"
             }
         }
 
         /// 对应的 AVCaptureDevice 类型
         var deviceType: AVCaptureDevice.DeviceType {
             switch self {
+            case .ultraWide: return .builtInUltraWideCamera
             case .wide: return .builtInWideAngleCamera
             case .telephoto: return .builtInTelephotoCamera
             }
         }
+
+        /// 该机型是否具备这个物理镜头(没有的机型会禁用对应选项)
+        var isAvailable: Bool {
+            AVCaptureDevice.default(deviceType, for: .video, position: .back) != nil
+        }
     }
 
     /// 当前使用的镜头(UI 可切换)。显微镜目镜射出平行光(等效无穷远虚像 afocal)：
-    /// 主摄(wide)畸变最小、光圈最大弱光最好；长焦(telephoto)窄视角能填满目镜视野、放大率更高。
-    /// 两者都会对焦到无穷远，用户可在界面上对比实测效果。
+    /// 主摄(wide)畸变最小、光圈最大弱光最好；长焦(telephoto)窄视角能填满目镜视野、放大率更高；
+    /// 超广角(ultraWide)视野最广但畸变最大。三者都会对焦到无穷远，可在界面上实测对比。
     @Published var currentLens: LensType = .wide
-
-    /// 设备是否具备长焦镜头(无长焦的机型会禁用长焦选项)
-    var isTelephotoAvailable: Bool {
-        AVCaptureDevice.default(.builtInTelephotoCamera, for: .video, position: .back) != nil
-    }
 
     /// 当前使用的物理摄像头设备(用于锁定对焦/曝光/变焦)
     private var currentDevice: AVCaptureDevice?
@@ -197,8 +202,8 @@ class CameraManager: NSObject, ObservableObject {
     /// 只有真正切换成功才更新 currentLens，保证 UI 状态与真实硬件一致。
     func switchLens(to lens: LensType) {
         guard lens != currentLens else { return }
-        // 无长焦镜头的机型不允许切到长焦
-        guard lens != .telephoto || isTelephotoAvailable else { return }
+        // 机型没有该物理镜头时不允许切换
+        guard lens.isAvailable else { return }
 
         captureSession.beginConfiguration()
         let ok = configureInput(for: lens)
