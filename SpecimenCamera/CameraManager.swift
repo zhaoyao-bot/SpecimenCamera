@@ -23,6 +23,53 @@ class CameraManager: NSObject, ObservableObject {
     /// to produce a dark/blank preview on some devices.
     var preferRAW = true
 
+    /// 可选物理镜头
+    enum LensType: String, CaseIterable, Identifiable {
+        case wide
+        case telephoto
+
+        var id: String { rawValue }
+
+        /// 界面显示名
+        var displayName: String {
+            switch self {
+            case .wide: return "主摄"
+            case .telephoto: return "长焦"
+            }
+        }
+
+        /// 界面副标题(该镜头的特点，帮助用户选择)
+        var hint: String {
+            switch self {
+            case .wide: return "畸变最小 · 弱光最好"
+            case .telephoto: return "填满画面 · 放大更高"
+            }
+        }
+
+        /// 对应的 AVCaptureDevice 类型
+        var deviceType: AVCaptureDevice.DeviceType {
+            switch self {
+            case .wide: return .builtInWideAngleCamera
+            case .telephoto: return .builtInTelephotoCamera
+            }
+        }
+    }
+
+    /// 当前使用的镜头(UI 可切换)。显微镜目镜射出平行光(等效无穷远虚像 afocal)：
+    /// 主摄(wide)畸变最小、光圈最大弱光最好；长焦(telephoto)窄视角能填满目镜视野、放大率更高。
+    /// 两者都会对焦到无穷远，用户可在界面上对比实测效果。
+    @Published var currentLens: LensType = .wide
+
+    /// 设备是否具备长焦镜头(无长焦的机型会禁用长焦选项)
+    var isTelephotoAvailable: Bool {
+        AVCaptureDevice.default(.builtInTelephotoCamera, for: .video, position: .back) != nil
+    }
+
+    /// 当前使用的物理摄像头设备(用于锁定对焦/曝光/变焦)
+    private var currentDevice: AVCaptureDevice?
+    /// 当前的输入(切换镜头时需要移除旧的)
+    private var currentInput: AVCaptureDeviceInput?
+
     // Store photo data for saving
     var capturedJpegData: Data?
     private var capturedDngData: Data?
@@ -80,14 +127,10 @@ class CameraManager: NSObject, ObservableObject {
         captureSession.beginConfiguration()
         captureSession.sessionPreset = .photo
 
-        guard let device = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .back),
-              let input = try? AVCaptureDeviceInput(device: device) else {
+        // 建立默认镜头(主摄)的输入
+        guard configureInput(for: currentLens) else {
             captureSession.commitConfiguration()
             return
-        }
-
-        if captureSession.canAddInput(input) {
-            captureSession.addInput(input)
         }
 
         if captureSession.canAddOutput(photoOutput) {
@@ -104,6 +147,112 @@ class CameraManager: NSObject, ObservableObject {
             Task { @MainActor [weak self] in
                 self?.isCameraReady = true
             }
+            // 等自动曝光/白平衡收敛稳定后再锁定，避免锁在不佳的值上
+            DispatchQueue.global().asyncAfter(deadline: .now() + 1.2) {
+                Task { @MainActor [weak self] in
+                    self?.lockFocusInfinityAndExposure()
+                }
+            }
+        }
+    }
+
+    // MARK: - Lens Switching (主摄 / 长焦)
+
+    /// 建立(或切换)指定镜头的输入。成功返回 true。
+    /// 会移除旧输入、加入新设备输入，并锁最小变焦(1x)防止视角/畸变变化。
+    /// 注意：调用方需自行包裹 beginConfiguration / commitConfiguration。
+    @discardableResult
+    private func configureInput(for lens: LensType) -> Bool {
+        // 先准备好新设备与输入，成功后才移除旧的 —— 避免切换失败时 session 没有输入导致黑屏
+        guard let device = AVCaptureDevice.default(lens.deviceType, for: .video, position: .back),
+              let input = try? AVCaptureDeviceInput(device: device) else {
+            return false
+        }
+
+        let oldInput = currentInput
+        if let oldInput {
+            captureSession.removeInput(oldInput)
+        }
+
+        guard captureSession.canAddInput(input) else {
+            // 无法加入新输入(极少发生)，把旧的放回去保持可用
+            if let oldInput, captureSession.canAddInput(oldInput) {
+                captureSession.addInput(oldInput)
+            }
+            return false
+        }
+
+        captureSession.addInput(input)
+        currentDevice = device
+        currentInput = input
+
+        // 锁最小变焦(1x)：杜绝变焦导致视角/畸变变化(尤其避免多摄机型自动切镜)
+        configureDevice { dev in
+            dev.videoZoomFactor = dev.minAvailableVideoZoomFactor
+        }
+        return true
+    }
+
+    /// 切换物理镜头(主摄 ⇄ 长焦)。切换后重新锁定无穷远对焦与曝光。
+    /// 只有真正切换成功才更新 currentLens，保证 UI 状态与真实硬件一致。
+    func switchLens(to lens: LensType) {
+        guard lens != currentLens else { return }
+        // 无长焦镜头的机型不允许切到长焦
+        guard lens != .telephoto || isTelephotoAvailable else { return }
+
+        captureSession.beginConfiguration()
+        let ok = configureInput(for: lens)
+        captureSession.commitConfiguration()
+
+        guard ok else { return } // 切换失败则保持原镜头
+        currentLens = lens
+        isRAWSupported = !photoOutput.availableRawPhotoPixelFormatTypes.isEmpty
+
+        // 切换镜头后等曝光重新收敛，再锁无穷远对焦 + 曝光
+        DispatchQueue.global().asyncAfter(deadline: .now() + 1.0) { [weak self] in
+            Task { @MainActor in
+                self?.lockFocusInfinityAndExposure()
+            }
+        }
+    }
+
+    // MARK: - Device Configuration (显微镜拍摄: 锁变焦 / 锁无穷远对焦 / 锁曝光)
+
+    /// 显微镜目镜射出的是平行光(等效"无穷远"的虚像, afocal)，
+    /// 因此相机必须对焦在无穷远(lensPosition = 1.0)，而不是对焦到眼前的物理目镜。
+    /// 自动对焦很容易被近处的目镜镜片迷惑而对到近处 → 标本模糊，
+    /// 所以这里锁定对焦到无穷远。同时锁定曝光，保证每张图亮度一致(标定/批量采集需要可复现)。
+    func lockFocusInfinityAndExposure() {
+        configureDevice { dev in
+            // 1.0 = 对焦在无穷远(平行光/显微镜目镜像)
+            if dev.isFocusModeSupported(.locked) {
+                dev.setFocusModeLocked(lensPosition: 1.0)
+            }
+            // 锁定曝光(锁的是已经由自动曝光稳定下来的当前值，不会更暗)
+            if dev.isExposureModeSupported(.locked) {
+                dev.exposureMode = .locked
+            }
+        }
+    }
+
+    /// 解锁曝光(回到自动)，用于换标本/光源变化后重新测光
+    func unlockExposure() {
+        configureDevice { dev in
+            if dev.isExposureModeSupported(.continuousAutoExposure) {
+                dev.exposureMode = .continuousAutoExposure
+            }
+        }
+    }
+
+    /// 安全的 lockForConfiguration / unlockForConfiguration 封装
+    private func configureDevice(_ block: (AVCaptureDevice) -> Void) {
+        guard let device = currentDevice else { return }
+        do {
+            try device.lockForConfiguration()
+            block(device)
+            device.unlockForConfiguration()
+        } catch {
+            print("相机参数配置失败: \(error.localizedDescription)")
         }
     }
 

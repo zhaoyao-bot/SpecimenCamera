@@ -272,6 +272,15 @@ struct CalibrationCameraView: View {
             .padding(.vertical, 12)
             .background(Color.black.opacity(0.7))
 
+            // 镜头切换(主摄 / 长焦)
+            HStack {
+                Spacer()
+                LensSwitchPicker(cameraManager: cameraManager)
+                Spacer()
+            }
+            .padding(.vertical, 8)
+            .background(Color.black.opacity(0.55))
+
             // Camera preview
             CameraPreviewView(session: cameraManager.captureSession)
                 .aspectRatio(3/4, contentMode: .fit)

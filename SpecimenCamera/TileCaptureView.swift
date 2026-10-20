@@ -45,6 +45,15 @@ struct TileCaptureView: View {
                 // Top info bar
                 topBar
 
+                // 镜头切换(主摄 / 长焦)
+                HStack {
+                    Spacer()
+                    LensSwitchPicker(cameraManager: cameraManager)
+                    Spacer()
+                }
+                .padding(.vertical, 8)
+                .background(Color.black.opacity(0.55))
+
                 // Camera preview with parent overlay
                 GeometryReader { geo in
                     ZStack {

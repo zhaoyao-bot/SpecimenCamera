@@ -256,6 +256,9 @@ struct QuickCameraView: View {
                 Spacer()
 
                 VStack(spacing: 16) {
+                    // 镜头切换(主摄 / 长焦)
+                    LensSwitchPicker(cameraManager: cameraManager)
+
                     if cameraManager.isRAWSupported {
                         Text("RAW")
                             .font(.system(size: 11, weight: .bold, design: .rounded))
