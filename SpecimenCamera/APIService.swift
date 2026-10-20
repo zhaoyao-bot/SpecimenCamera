@@ -27,10 +27,13 @@ class APIService: ObservableObject {
             throw APIError.invalidURL
         }
 
-        var request = URLRequest(url: url)
+        var request = URLRequest(url: url,
+                                 cachePolicy: .reloadIgnoringLocalAndRemoteCacheData,
+                                 timeoutInterval: 30)
         request.httpMethod = method
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.timeoutInterval = 30
+        // 内网环境：每次都直接请求后台，不使用任何缓存
+        request.setValue("no-cache", forHTTPHeaderField: "Cache-Control")
 
         if let body = body {
             let encoder = JSONEncoder()
@@ -209,23 +212,70 @@ class APIService: ObservableObject {
 
     // MARK: - Fetch Tile Image
 
-    func fetchTileImage(urlString: String) async throws -> UIImage {
+    /// 通过后台代理接口获取图片数据。
+    /// 会检查 HTTP 状态码 —— 否则后台返回 404/500 的错误 JSON 时，
+    /// 会被笼统报成"图片解析失败"，掩盖真实原因。
+    /// 内网环境：每次都直接请求后台，完全绕过本地/远程缓存
+    /// (弱网下若缓存到损坏/不完整的响应，会导致后续反复失败)
+    private func fetchTileImageData(urlString: String) async throws -> Data {
         guard let url = URL(string: "\(baseURL)/manager/specimen-tiles/image?image_url=\(urlString.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? urlString)") else {
             throw APIError.invalidURL
         }
-        let (data, _) = try await URLSession.shared.data(from: url)
-        guard let image = UIImage(data: data) else {
+
+        var request = URLRequest(url: url,
+                                 cachePolicy: .reloadIgnoringLocalAndRemoteCacheData,
+                                 timeoutInterval: 30)
+        request.setValue("no-cache", forHTTPHeaderField: "Cache-Control")
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+
+        if let http = response as? HTTPURLResponse {
+            let contentType = http.value(forHTTPHeaderField: "Content-Type") ?? "nil"
+            print("🖼 图片响应: HTTP \(http.statusCode), Content-Type: \(contentType), 大小: \(data.count) 字节")
+            guard (200..<300).contains(http.statusCode) else {
+                let body = String(data: data.prefix(300), encoding: .utf8) ?? ""
+                print("❌ 图片请求失败 HTTP \(http.statusCode), 返回: \(body)")
+                throw APIError.serverError("HTTP \(http.statusCode) \(body)")
+            }
+        }
+
+        guard UIImage(data: data) != nil else {
+            let preview = String(data: data.prefix(300), encoding: .utf8) ?? "非文本内容"
+            print("❌ 图片解析失败(不是有效图片数据)，返回前 300 字节: \(preview)")
             throw APIError.invalidImage
         }
-        return image
+        return data
+    }
+
+    /// 获取父图/大图。弱网(实验室)下会自动重试，最多 3 次，逐次退避。
+    /// 每次请求都是全新的(不走缓存)，避免拿到弱网时缓存下来的损坏数据。
+    func fetchTileImage(urlString: String) async throws -> UIImage {
+        let maxAttempts = 3
+        var lastError: Error = APIError.invalidImage
+
+        for attempt in 1...maxAttempts {
+            do {
+                let data = try await fetchTileImageData(urlString: urlString)
+                return UIImage(data: data)!
+            } catch {
+                lastError = error
+                // 404 说明确实没有这张图，重试无意义
+                if case APIError.serverError(let msg) = error, msg.contains("HTTP 404") {
+                    throw error
+                }
+                print("⚠️ 第 \(attempt)/\(maxAttempts) 次加载图片失败: \(error.localizedDescription)")
+                if attempt < maxAttempts {
+                    // 退避等待后重试(0.5s → 1s)，给弱网一个恢复机会
+                    try? await Task.sleep(nanoseconds: UInt64(attempt) * 500_000_000)
+                }
+            }
+        }
+        throw lastError
     }
 
     /// Fetch tile image and downscale to thumbnail size for faster loading
     func fetchTileThumbnail(urlString: String, maxSize: CGFloat = 88) async throws -> UIImage {
-        guard let url = URL(string: "\(baseURL)/manager/specimen-tiles/image?image_url=\(urlString.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? urlString)") else {
-            throw APIError.invalidURL
-        }
-        let (data, _) = try await URLSession.shared.data(from: url)
+        let data = try await fetchTileImageData(urlString: urlString)
         guard let image = UIImage(data: data) else {
             throw APIError.invalidImage
         }

@@ -841,25 +841,21 @@ struct TileCaptureView: View {
         isLoadingParent = true
 
         do {
-            // Find parent tile and get image URL directly from list data
-            var parentTile: SpecimenTile?
-            if let pt = remoteTiles.first(where: { $0.seqId == parentSeq }) {
-                parentTile = pt
-            } else {
-                // Fetch tiles list to find parent
-                let response = try await api.fetchTiles(
-                    specimenId: config.specimenId,
-                    ratioId: config.ratioId,
-                    stackId: config.stackId
-                )
-                remoteTiles = response.tiles ?? []
-                parentTile = remoteTiles.first(where: { $0.seqId == parentSeq })
-            }
+            // 总是先刷新远程列表，确保拿到最新记录。
+            // 之前优先用本地缓存 remoteTiles，可能命中旧的/已失效的同 seqId 记录导致固定加载失败。
+            let response = try await api.fetchTiles(
+                specimenId: config.specimenId,
+                ratioId: config.ratioId,
+                stackId: config.stackId
+            )
+            remoteTiles = response.tiles ?? []
+            let parentTile = remoteTiles.first(where: { $0.seqId == parentSeq })
 
             if let pt = parentTile {
                 let imageUrl = pt.cameraImage ?? pt.canvasImage
                 if let imageUrl = imageUrl {
-                    print("🔍 Found parent image URL: \(imageUrl)")
+                    // 打印命中的 tile 信息，便于和数据库记录逐条对照(确认加载的是不是预期的那条)
+                    print("🔍 父图命中: id=\(pt.id) seqId=\(pt.seqId) parentSeq=\(pt.parentSeq) url=\(imageUrl)")
                     // 记录加载前是否已有图：首次加载自动显示，已有图则尊重用户当前的显示/隐藏选择
                     let wasEmpty = (parentImage == nil)
                     parentImage = try await api.fetchTileImage(urlString: imageUrl)
