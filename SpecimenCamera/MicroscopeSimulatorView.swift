@@ -554,6 +554,23 @@ struct MicroscopeObserverView: View {
             .animation(.easeOut(duration: 0.1), value: center)
             .animation(.easeOut(duration: 0.08), value: focus)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+            // 圆窗边缘内氲: 外缘 6% 半径由透明渐变到黑, 柔化硬边
+            .overlay(
+                Circle()
+                    .fill(
+                        RadialGradient(
+                            stops: [
+                                .init(color: .clear, location: 0.94),
+                                .init(color: .black, location: 1.0)
+                            ],
+                            center: .center,
+                            startRadius: 0,
+                            endRadius: s / 2
+                        )
+                    )
+                    .frame(width: s, height: s)
+                    .allowsHitTesting(false)
+            )
             .overlay(alignment: .bottom) {
                 viewportBadge.padding(.bottom, 6)
             }
