@@ -124,6 +124,66 @@ struct SpecimenTile: Codable, Identifiable {
     }
 }
 
+// MARK: - Specimen Tile Product (瓦片产品: 拆分堆叠后的 512x512 瓦片)
+
+/// 瓦片产品记录, 显微镜模拟器的数据源。
+/// 后台字段命名存在多种可能, 这里做多 key 宽容解码, 后台字段调整后 App 仍可工作。
+struct SpecimenTileProduct: Decodable, Identifiable {
+    let id: Int
+    let specimenId: Int
+    let ratioId: Int
+    let stackId: Int
+    let locMid: String?
+    let locTop: String?
+    let locBottom: String?
+    let locX: Int?
+    let locY: Int?
+    let locZ: Int?
+    let layer: String?
+    let status: Int?
+    let updateTime: String?
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: AnyKey.self)
+
+        func str(_ keys: [String]) -> String? {
+            for k in keys {
+                if let v = try? c.decode(String.self, forKey: AnyKey(k)), !v.isEmpty { return v }
+            }
+            return nil
+        }
+        func int(_ keys: [String]) -> Int? {
+            for k in keys {
+                if let v = try? c.decode(Int.self, forKey: AnyKey(k)) { return v }
+                if let d = try? c.decode(Double.self, forKey: AnyKey(k)) { return Int(d) }
+            }
+            return nil
+        }
+
+        id = int(["id", "tile_product_id"]) ?? 0
+        specimenId = int(["specimen_id", "specimenId"]) ?? 0
+        ratioId = int(["ratio_id", "ratioId"]) ?? 0
+        stackId = int(["stack_id", "stackId"]) ?? 0
+        locMid = str(["loc_mid", "locMid", "mid", "url", "image_url"])
+        locTop = str(["loc_top", "locTop", "top"])
+        locBottom = str(["loc_bottom", "locBottom", "bottom"])
+        locX = int(["loc_x", "locX", "x", "col"])
+        locY = int(["loc_y", "locY", "y", "row"])
+        locZ = int(["loc_z", "locZ", "z"])
+        layer = str(["layer", "type", "loc_type"])
+        status = int(["status"])
+        updateTime = str(["update_time", "updateTime"])
+    }
+
+    struct AnyKey: CodingKey {
+        let stringValue: String
+        init(_ s: String) { stringValue = s }
+        init?(stringValue: String) { self.stringValue = stringValue }
+        var intValue: Int? { nil }
+        init?(intValue: Int) { nil }
+    }
+}
+
 // MARK: - Tile Queue Item (Local)
 
 struct TileQueueItem: Identifiable {

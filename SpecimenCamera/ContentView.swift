@@ -86,6 +86,16 @@ struct ContentView: View {
                                         subtitle: "RAW+JPEG 拍摄 · 保存到相册",
                                         gradient: [WarmTheme.accent, WarmTheme.primary])
                         }
+
+                        NavigationLink {
+                            MicroscopeSetupView()
+                        } label: {
+                            featureCard(icon: "eye.circle.fill",
+                                        title: "显微镜模拟器",
+                                        subtitle: "选择标本 · 目镜视野 · 焦距模拟",
+                                        gradient: [Color(red: 0.45, green: 0.55, blue: 0.85),
+                                                   Color(red: 0.30, green: 0.38, blue: 0.65)])
+                        }
                     }
                     .padding(.horizontal, 24)
 
@@ -256,8 +266,11 @@ struct QuickCameraView: View {
                 Spacer()
 
                 VStack(spacing: 16) {
-                    // 镜头切换(主摄 / 长焦)
-                    LensSwitchPicker(cameraManager: cameraManager)
+                    // 镜头切换(超广角/主摄/长焦) + 重新测光
+                    HStack(spacing: 8) {
+                        LensSwitchPicker(cameraManager: cameraManager)
+                        RemeteringButton(cameraManager: cameraManager)
+                    }
 
                     if cameraManager.isRAWSupported {
                         Text("RAW")

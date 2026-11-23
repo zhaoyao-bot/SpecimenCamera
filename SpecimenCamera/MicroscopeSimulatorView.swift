@@ -1,0 +1,928 @@
+import SwiftUI
+
+// MARK: - 显微镜模拟器: 设置页
+
+struct MicroscopeSetupView: View {
+    @StateObject private var api = APIService.shared
+
+    // 级联选择状态(与拍摄页一致的模式)
+    @State private var specimens: [SpecimenWithRatios] = []
+    @State private var selectedSpecimenIndex: Int?
+    @State private var ratios: [SpecimenRatio] = []
+    @State private var selectedRatioIndex: Int?
+    @State private var stacks: [SpecimenTileStacked] = []
+    @State private var selectedStackIndex: Int?
+
+    // Picker sheet 状态
+    @State private var showSpecimenPicker = false
+    @State private var showRatioPicker = false
+    @State private var showStackPicker = false
+    @State private var specimenSearchText = ""
+
+    @State private var isLoading = false
+    @State private var isLoadingRatios = false
+    @State private var isLoadingStacks = false
+    @State private var toastMessage: String?
+    @State private var navigateToObserver = false
+
+    private var specimenId: Int? {
+        guard let i = selectedSpecimenIndex, specimens.indices.contains(i) else { return nil }
+        return specimens[i].id
+    }
+    private var specimenName: String? {
+        guard let i = selectedSpecimenIndex, specimens.indices.contains(i) else { return nil }
+        return specimens[i].name
+    }
+    private var ratioId: Int? {
+        guard let i = selectedRatioIndex, ratios.indices.contains(i) else { return nil }
+        return ratios[i].id
+    }
+    private var ratioLabel: String? {
+        guard let i = selectedRatioIndex, ratios.indices.contains(i) else { return nil }
+        return "\(ratios[i].ratio)x"
+    }
+    private var stackId: Int? {
+        guard let i = selectedStackIndex, stacks.indices.contains(i) else { return nil }
+        return stacks[i].id
+    }
+    private var stackLabel: String? {
+        guard let i = selectedStackIndex, stacks.indices.contains(i) else { return nil }
+        return stacks[i].stackName
+    }
+
+    private var canObserve: Bool {
+        specimenId != nil && ratioId != nil && stackId != nil
+    }
+
+    var body: some View {
+        NavigationStack {
+            ZStack {
+                LinearGradient(
+                    colors: [WarmTheme.bgGradientTop, WarmTheme.bgGradientBottom],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+                .ignoresSafeArea()
+
+                VStack(spacing: 18) {
+                    headerIcon
+                    selectionCard.padding(.horizontal, 24)
+                    observeButton.padding(.horizontal, 24)
+                    Spacer()
+                }
+                .padding(.top, 60)
+
+                if isLoading {
+                    ProgressView("加载中...")
+                        .padding()
+                        .background(WarmTheme.cardBg.opacity(0.9))
+                        .clipShape(RoundedRectangle(cornerRadius: 12))
+                }
+
+                if let toast = toastMessage {
+                    Text(toast)
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 10)
+                        .background(Color.black.opacity(0.7))
+                        .clipShape(Capsule())
+                        .padding(.bottom, 60)
+                }
+            }
+            .navigationTitle("显微镜模拟器")
+            .navigationBarTitleDisplayMode(.inline)
+            .task { await loadSpecimens() }
+            .animation(.easeInOut(duration: 0.3), value: toastMessage)
+            .sheet(isPresented: $showSpecimenPicker) {
+                SpecimenPickerSheet(
+                    specimens: specimens,
+                    searchText: $specimenSearchText,
+                    selectedIndex: $selectedSpecimenIndex
+                )
+            }
+            .sheet(isPresented: $showRatioPicker) {
+                RatioPickerSheet(ratios: ratios, selectedIndex: $selectedRatioIndex)
+            }
+            .sheet(isPresented: $showStackPicker) {
+                StackPickerSheet(stacks: stacks, selectedIndex: $selectedStackIndex)
+            }
+            // 级联: 选标本 → 重置并加载倍数; 选倍数 → 重置并加载堆叠
+            .onChange(of: selectedSpecimenIndex) { _, _ in
+                selectedRatioIndex = nil
+                selectedStackIndex = nil
+                ratios = []
+                stacks = []
+                if specimenId != nil { Task { await loadRatios() } }
+            }
+            .onChange(of: selectedRatioIndex) { _, _ in
+                selectedStackIndex = nil
+                stacks = []
+                if ratioId != nil { Task { await loadStacks() } }
+            }
+            .navigationDestination(isPresented: $navigateToObserver) {
+                if let sid = specimenId, let rid = ratioId, let stkId = stackId {
+                    MicroscopeObserverView(specimenId: sid, ratioId: rid, stackId: stkId)
+                }
+            }
+        }
+        .navigationViewStyle(.stack)
+    }
+
+    private var headerIcon: some View {
+        ZStack {
+            Circle()
+                .fill(WarmTheme.accent.opacity(0.15))
+                .frame(width: 90, height: 90)
+            Circle()
+                .strokeBorder(WarmTheme.accent.opacity(0.4), lineWidth: 6)
+                .frame(width: 90, height: 90)
+            Circle()
+                .fill(RadialGradient(colors: [.white.opacity(0.9), WarmTheme.accent.opacity(0.3)],
+                                     center: .center, startRadius: 2, endRadius: 30))
+                .frame(width: 52, height: 52)
+        }
+    }
+
+    // MARK: 级联选择卡片
+
+    private var selectionCard: some View {
+        VStack(spacing: 16) {
+            cascadeRow(icon: "leaf.fill",
+                       label: "标本",
+                       value: specimenName,
+                       placeholder: "请选择",
+                       enabled: !specimens.isEmpty,
+                       loading: false) {
+                showSpecimenPicker = true
+            }
+
+            Divider()
+
+            cascadeRow(icon: "arrow.up.left.and.arrow.down.right",
+                       label: "放大倍数",
+                       value: ratioLabel,
+                       placeholder: specimenId == nil ? "请先选择标本" : (ratios.isEmpty ? "暂无倍数" : "请选择"),
+                       enabled: specimenId != nil && !ratios.isEmpty,
+                       loading: isLoadingRatios) {
+                showRatioPicker = true
+            }
+
+            Divider()
+
+            cascadeRow(icon: "square.stack.3d.up.fill",
+                       label: "堆叠",
+                       value: stackLabel,
+                       placeholder: ratioId == nil ? "请先选择倍数" : (stacks.isEmpty ? "暂无堆叠" : "请选择"),
+                       enabled: ratioId != nil && !stacks.isEmpty,
+                       loading: isLoadingStacks) {
+                showStackPicker = true
+            }
+        }
+        .padding(18)
+        .background(WarmTheme.cardBg.opacity(0.92))
+        .clipShape(RoundedRectangle(cornerRadius: 16))
+        .overlay(RoundedRectangle(cornerRadius: 16)
+            .stroke(WarmTheme.accent.opacity(0.25), lineWidth: 1))
+    }
+
+    private func cascadeRow(icon: String, label: String, value: String?, placeholder: String,
+                            enabled: Bool, loading: Bool, action: @escaping () -> Void) -> some View {
+        HStack(spacing: 10) {
+            Image(systemName: icon)
+                .font(.system(size: 14))
+                .foregroundColor(WarmTheme.accent)
+                .frame(width: 22)
+
+            Text(label)
+                .font(.system(size: 14, weight: .medium))
+                .foregroundColor(WarmTheme.textPrimary)
+                .frame(width: 62, alignment: .leading)
+
+            Spacer()
+
+            if loading {
+                ProgressView()
+                    .scaleEffect(0.7)
+                    .tint(WarmTheme.primary)
+            } else {
+                Button(action: action) {
+                    HStack(spacing: 4) {
+                        Text(value ?? placeholder)
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundColor(value != nil ? WarmTheme.textPrimary : WarmTheme.textSecondary.opacity(0.6))
+                            .lineLimit(1)
+                        if enabled {
+                            Image(systemName: "chevron.up.chevron.down")
+                                .font(.system(size: 10, weight: .semibold))
+                                .foregroundColor(WarmTheme.textSecondary)
+                        }
+                    }
+                }
+                .disabled(!enabled)
+            }
+        }
+    }
+
+    private var observeButton: some View {
+        Button {
+            guard canObserve else {
+                showToast("请先选择标本、放大倍数和堆叠")
+                return
+            }
+            navigateToObserver = true
+        } label: {
+            HStack(spacing: 10) {
+                Image(systemName: "eye.fill")
+                Text("开始观察")
+                    .font(.system(size: 17, weight: .bold))
+            }
+            .foregroundColor(.white)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 16)
+            .background(LinearGradient(
+                colors: canObserve
+                    ? [WarmTheme.primary, WarmTheme.deep]
+                    : [Color.gray.opacity(0.5), Color.gray.opacity(0.4)],
+                startPoint: .leading, endPoint: .trailing))
+            .clipShape(RoundedRectangle(cornerRadius: 16))
+        }
+        .disabled(isLoading)
+    }
+
+    // MARK: - Data
+
+    private func loadSpecimens() async {
+        isLoading = true
+        defer { isLoading = false }
+        do {
+            let response = try await api.fetchSpecimensWithMagnifications()
+            specimens = response.specimens ?? []
+            if specimens.isEmpty { showToast("暂无标本数据") }
+        } catch {
+            showToast("加载标本失败: \(error.localizedDescription)")
+        }
+    }
+
+    private func loadRatios() async {
+        guard let sid = specimenId else { return }
+        isLoadingRatios = true
+        defer { isLoadingRatios = false }
+        do {
+            ratios = try await api.fetchRatios(specimenId: sid)
+        } catch {
+            showToast("加载倍数失败: \(error.localizedDescription)")
+        }
+    }
+
+    private func loadStacks() async {
+        guard let sid = specimenId, let rid = ratioId else { return }
+        isLoadingStacks = true
+        defer { isLoadingStacks = false }
+        do {
+            stacks = try await api.fetchStacks(specimenId: sid, ratioId: rid)
+        } catch {
+            showToast("加载堆叠失败: \(error.localizedDescription)")
+        }
+    }
+
+    private func showToast(_ text: String) {
+        toastMessage = text
+        Task {
+            try? await Task.sleep(for: .seconds(2))
+            toastMessage = nil
+        }
+    }
+}
+
+// MARK: - 显微镜模拟器: 观察页(按需加载视口瓦片)
+
+struct MicroscopeObserverView: View {
+    let specimenId: Int
+    let ratioId: Int
+    let stackId: Int
+
+    @StateObject private var api = APIService.shared
+
+    private enum Phase: Equatable {
+        case loading
+        case ready
+        case failed(String)
+    }
+
+    /// 瓦片元数据: tx/ty 网格索引(缓存 key), px/py 源图绝对像素(拼合定位)
+    private struct TileMeta: Sendable {
+        let tx: Int
+        let ty: Int
+        let px: CGFloat
+        let py: CGFloat
+        let url: String
+    }
+
+    /// 参与拼合的单块瓦片
+    private struct RegionTile: Sendable {
+        let px: CGFloat
+        let py: CGFloat
+        let image: UIImage
+    }
+
+    @State private var phase: Phase = .loading
+    @State private var progressText = ""
+    @State private var metaByCoord: [String: TileMeta] = [:]
+
+    @State private var tileW: CGFloat = 512
+    @State private var tileH: CGFloat = 512
+    @State private var gridWidth: CGFloat = 512
+    @State private var gridHeight: CGFloat = 512
+
+    @State private var windowSize: CGSize = .zero
+    @State private var center: CGPoint = .zero
+    @State private var viewportImage: UIImage?
+    @State private var viewportOrigin: CGPoint = .zero
+    @State private var viewportTiles: (x0: Int, y0: Int, x1: Int, y1: Int) = (0, 0, -1, -1)
+    @State private var viewportSignature = ""
+    @State private var viewportTask: Task<Void, Never>?
+    @State private var reloadTask: Task<Void, Never>?   // 移动防抖
+    @State private var loadingViewport = false
+    @State private var tileCache: [String: UIImage] = [:]
+    @State private var focus: Float = 0
+
+    /// 源图像素 → 显示 pt 比例: 视野约覆盖 1.3 块瓦片
+    private let viewScale: CGFloat = 0.5
+    private let panStepPx: CGFloat = 90
+    private let tileCacheLimit = 60
+
+    var body: some View {
+        ZStack {
+            LinearGradient(
+                colors: [Color(red: 0.10, green: 0.08, blue: 0.06),
+                         Color(red: 0.02, green: 0.02, blue: 0.02)],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+            .ignoresSafeArea()
+
+            VStack(spacing: 14) {
+                infoBar
+                Spacer()
+
+                switch phase {
+                case .loading:
+                    VStack(spacing: 14) {
+                        ProgressView()
+                            .scaleEffect(1.2)
+                            .tint(WarmTheme.accent)
+                        Text(progressText.isEmpty ? "正在加载瓦片产品..." : progressText)
+                            .font(.system(size: 13))
+                            .foregroundColor(.white.opacity(0.75))
+                    }
+                case .failed(let message):
+                    VStack(spacing: 14) {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .font(.system(size: 36))
+                            .foregroundColor(.yellow.opacity(0.8))
+                        Text(message)
+                            .font(.system(size: 14))
+                            .foregroundColor(.white.opacity(0.85))
+                            .multilineTextAlignment(.center)
+                            .padding(.horizontal, 30)
+                        Button("重试") {
+                            phase = .loading
+                            Task { await load() }
+                        }
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundColor(WarmTheme.accent)
+                    }
+                case .ready:
+                    if let vp = viewportImage {
+                        eyepieceView(vp)
+                    } else {
+                        eyepiecePlaceholder
+                    }
+                }
+
+                Spacer()
+                controls
+            }
+            .padding(.vertical, 12)
+        }
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbarBackground(Color.black.opacity(0.55), for: .navigationBar)
+        .task { await load() }
+        // 窗口尺寸就绪/变化后按需拼视口(初始由 placeholder 的 GeometryReader 触发)
+        .onChange(of: windowSize) { _, _ in
+            if phase == .ready { ensureViewport() }
+        }
+        .onDisappear {
+            viewportTask?.cancel()
+            reloadTask?.cancel()
+        }
+    }
+
+    /// 视口图未就绪时的占位: 同样包含 GeometryReader 以便尽早获得窗口尺寸
+    private var eyepiecePlaceholder: some View {
+        GeometryReader { geo in
+            let s = min(geo.size.width, geo.size.height)
+            ZStack {
+                Color.black
+                VStack(spacing: 12) {
+                    ProgressView()
+                        .scaleEffect(1.1)
+                        .tint(WarmTheme.accent)
+                    Text(progressText.isEmpty ? "加载视口瓦片..." : progressText)
+                        .font(.system(size: 12))
+                        .foregroundColor(.white.opacity(0.75))
+                }
+            }
+            .frame(width: s, height: s)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .onAppear {
+                if windowSize != geo.size { windowSize = geo.size }
+            }
+            .onChange(of: geo.size) { _, newSize in
+                windowSize = newSize
+            }
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    private var infoBar: some View {
+        HStack {
+            HStack(spacing: 6) {
+                Image(systemName: "eye.circle.fill")
+                    .font(.system(size: 12))
+                Text("模拟观察 · stack \(stackId)")
+                    .font(.system(size: 13, weight: .bold, design: .rounded))
+            }
+            .foregroundColor(.white.opacity(0.9))
+            Spacer()
+            Text("方向键移动视野寻找标本")
+                .font(.system(size: 11))
+                .foregroundColor(.white.opacity(0.55))
+        }
+        .padding(.horizontal, 16)
+    }
+
+    /// 调试开关: 显微镜热扩散 shader。false = 纯显示拼合图(验证显示管线)
+    private let useMicroscopeShader = false
+
+    @ViewBuilder
+    private func eyepieceView(_ vp: UIImage) -> some View {
+        GeometryReader { geo in
+            let s = min(geo.size.width, geo.size.height)
+
+            let content = ZStack {
+                Color.black
+                Image(uiImage: vp)
+                    .resizable()
+                    .interpolation(.medium)
+                    .frame(width: vp.size.width * viewScale,
+                           height: vp.size.height * viewScale)
+                    // Image 在 ZStack 中已居中(图中心 = 源图 origin+vpSize/2 处),
+                    // 需要移动量 = 把"源图 center 点"对到视图中心:
+                    // offset = (origin + vpSize/2 - center) * viewScale
+                    .offset(x: (viewportOrigin.x + vp.size.width / 2 - center.x) * viewScale,
+                            y: (viewportOrigin.y + vp.size.height / 2 - center.y) * viewScale)
+            }
+            .frame(width: s, height: s)
+            .clipped()
+
+            Group {
+                if useMicroscopeShader {
+                    content.layerEffect(
+                        ShaderLibrary.microscopeView(
+                            .float2(CGSize(width: s, height: s)),
+                            .float(focus)
+                        ),
+                        maxSampleOffset: CGSize(width: 72, height: 72)
+                    )
+                } else {
+                    content
+                }
+            }
+            .clipShape(Circle())
+            .animation(.easeOut(duration: 0.1), value: center)
+            .animation(.easeOut(duration: 0.08), value: focus)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .overlay(alignment: .bottom) {
+                viewportBadge.padding(.bottom, 6)
+            }
+            .onAppear {
+                if windowSize != geo.size { windowSize = geo.size }
+            }
+            .onChange(of: geo.size) { _, newSize in
+                windowSize = newSize
+            }
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    @ViewBuilder
+    private var viewportBadge: some View {
+        if loadingViewport {
+            HStack(spacing: 6) {
+                ProgressView()
+                    .scaleEffect(0.6)
+                    .tint(.white)
+                Text(progressText.isEmpty ? "加载邻近瓦片..." : progressText)
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundColor(.white.opacity(0.85))
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 5)
+            .background(Color.black.opacity(0.55))
+            .clipShape(Capsule())
+        } else {
+            focusIndicator
+        }
+    }
+
+    private var focusIndicator: some View {
+        HStack(spacing: 6) {
+            Circle()
+                .fill(focus == 0 ? Color.green : Color.yellow)
+                .frame(width: 7, height: 7)
+            Text(focus == 0 ? "合焦" : (focus > 0
+                ? "后离焦 \(String(format: "%.1f", focus))"
+                : "前离焦 \(String(format: "%.1f", -focus))"))
+                .font(.system(size: 11, weight: .semibold, design: .rounded))
+                .foregroundColor(.white.opacity(0.85))
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 5)
+        .background(Color.black.opacity(0.55))
+        .clipShape(Capsule())
+    }
+
+    private var controls: some View {
+        HStack(spacing: 22) {
+            directionPad
+            Divider()
+                .frame(height: 130)
+                .background(Color.white.opacity(0.2))
+            focusPad
+        }
+        .padding(.vertical, 10)
+    }
+
+    private func padButton(icon: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: icon)
+                .font(.system(size: 16, weight: .bold))
+                .foregroundColor(.white.opacity(0.9))
+                .frame(width: 46, height: 38)
+                .background(Color.white.opacity(0.14))
+                .clipShape(RoundedRectangle(cornerRadius: 9))
+        }
+    }
+
+    private var directionPad: some View {
+        VStack(spacing: 4) {
+            padButton(icon: "arrow.up") { pan(dx: 0, dy: -1) }
+            HStack(spacing: 4) {
+                padButton(icon: "arrow.left") { pan(dx: -1, dy: 0) }
+                padButton(icon: "arrow.down") { pan(dx: 0, dy: 1) }
+                padButton(icon: "arrow.right") { pan(dx: 1, dy: 0) }
+            }
+        }
+    }
+
+    private var focusPad: some View {
+        VStack(spacing: 4) {
+            Text("焦距")
+                .font(.system(size: 12, weight: .medium))
+                .foregroundColor(.white.opacity(0.7))
+            HStack(spacing: 4) {
+                padButton(icon: "plus") { focus = min(1, focus + 0.2) }
+                padButton(icon: "minus") { focus = max(-1, focus - 0.2) }
+            }
+            Button("合焦") { focus = 0 }
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundColor(WarmTheme.accent)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 5)
+                .background(Color.white.opacity(0.12))
+                .clipShape(Capsule())
+        }
+    }
+
+    /// 平移视野: dx/dy 为方向(-1/0/1), 视野中心在源图内移动并 clamp 到网格边界
+    private func pan(dx: CGFloat, dy: CGFloat) {
+        guard phase == .ready else { return }
+        let half = max(windowSize.width, 1) / viewScale / 2
+        withAnimation(.easeOut(duration: 0.1)) {
+            center.x = min(max(center.x + dx * panStepPx, min(half, gridWidth / 2)),
+                           max(gridWidth - half, gridWidth / 2))
+            center.y = min(max(center.y + dy * panStepPx, min(half, gridHeight / 2)),
+                           max(gridHeight - half, gridHeight / 2))
+        }
+        // 防抖: 连续按键只在停顿 250ms 后重拼视口, 避免下载风暴和取消浪费
+        reloadTask?.cancel()
+        reloadTask = Task {
+            try? await Task.sleep(for: .milliseconds(250))
+            if !Task.isCancelled { ensureViewport() }
+        }
+    }
+
+    // MARK: - 按需视口加载
+
+    /// 视野中心变化后计算所需瓦片范围。
+    /// 调试模式(只拼视野中心所在的单块瓦片, 隔离验证"一块能否看到标本"):
+    /// autoLocate = true → 拼合范围恒为 center 所在的 1×1 块;
+    /// false → 拼视野覆盖的块(2×2 左右)
+    private let onlyCenterTile = false
+
+    private func ensureViewport() {
+        // 窗口尺寸未知(placeholder 尚未渲染)时不拼, 等 onChange(windowSize) 再触发
+        guard windowSize.width > 10 else { return }
+
+        let x0: Int, y0: Int, x1: Int, y1: Int
+        if onlyCenterTile {
+            x0 = max(Int(center.x / tileW), 0)
+            y0 = max(Int(center.y / tileH), 0)
+            x1 = x0
+            y1 = y0
+        } else {
+            let span = max(windowSize.width, 1) / viewScale
+            let half = span / 2
+            x0 = max(Int(floor((center.x - half) / tileW)), 0)
+            y0 = max(Int(floor((center.y - half) / tileH)), 0)
+            x1 = max(Int(floor((center.x + half - 0.001) / tileW)), 0)
+            y1 = max(Int(floor((center.y + half - 0.001) / tileH)), 0)
+        }
+
+        if viewportTiles.x0 <= x0, viewportTiles.x1 >= x1,
+           viewportTiles.y0 <= y0, viewportTiles.y1 >= y1 {
+            return
+        }
+
+        let signature = "\(x0),\(y0),\(x1),\(y1)"
+        guard signature != viewportSignature else { return }
+        viewportSignature = signature
+
+        // 不取消旧任务: 旧任务靠签名守卫自行退出, 已完成的下载仍会入缓存
+        viewportTask = Task { await buildViewport(x0: x0, y0: y0, x1: x1, y1: y1, signature: signature) }
+    }
+
+    private func buildViewport(x0: Int, y0: Int, x1: Int, y1: Int, signature: String) async {
+        // 签名已变(期间又有新的视口请求) → 本次作废, 不下载
+        guard signature == viewportSignature else { return }
+        loadingViewport = true
+        defer { loadingViewport = false }
+
+        // 1. 下载缺失瓦片(已缓存的复用)。非 throwing group: 即使任务被取消,
+        //    已完成的下载结果也全部入缓存, 不浪费
+        var needed: [TileMeta] = []
+        for ty in y0...y1 {
+            for tx in x0...x1 where tileCache["\(tx),\(ty)"] == nil {
+                if let m = metaByCoord["\(tx),\(ty)"] { needed.append(m) }
+            }
+        }
+        if !needed.isEmpty {
+            var fetched = 0
+            await withTaskGroup(of: (Int, UIImage?).self) { group in
+                for (i, m) in needed.enumerated() {
+                    group.addTask {
+                        do {
+                            let data = try await api.fetchTileImageData(urlString: m.url)
+                            return (i, UIImage(data: data))
+                        } catch {
+                            return (i, nil)
+                        }
+                    }
+                }
+                for await (i, img) in group {
+                    fetched += 1
+                    progressText = "加载瓦片 \(fetched)/\(needed.count)"
+                    if let img {
+                        let m = needed[i]
+                        tileCache["\(m.tx),\(m.ty)"] = img
+                    }
+                }
+            }
+        }
+
+        // 2. 期间签名又变了 → 只攒缓存, 不更新 UI(不清理缓存)
+        guard signature == viewportSignature else { return }
+
+        // 3. 收集本视口区域内的瓦片(清理缓存前取出)
+        //    px/py 必须是"相对区域原点"的画布坐标:
+        //    m.px/py 是网格绝对坐标(如 (2,3) 块 → 1024,1536), 直接画会超出画布 → 全黑
+        let originPx = CGFloat(x0) * tileW
+        let originPy = CGFloat(y0) * tileH
+        var region: [RegionTile] = []
+        for ty in y0...y1 {
+            for tx in x0...x1 {
+                if let img = tileCache["\(tx),\(ty)"],
+                   let m = metaByCoord["\(tx),\(ty)"] {
+                    region.append(RegionTile(px: m.px - originPx,
+                                             py: m.py - originPy,
+                                             image: img))
+                }
+            }
+        }
+        if tileCache.count > tileCacheLimit { tileCache.removeAll() }
+        guard !region.isEmpty else { return }
+
+        // 4. 后台拼合局部图
+        let width = CGFloat(x1 - x0 + 1) * tileW
+        let height = CGFloat(y1 - y0 + 1) * tileH
+        let image = await Task.detached(priority: .userInitiated) {
+            Self.renderRegion(tiles: region, width: width, height: height)
+        }.value
+        guard signature == viewportSignature else { return }
+
+        viewportImage = image
+        viewportOrigin = CGPoint(x: CGFloat(x0) * tileW, y: CGFloat(y0) * tileH)
+        viewportTiles = (x0, y0, x1, y1)
+    }
+
+    /// 拼合局部区域(scale=1: UIImage.size 即源图像素)
+    /// 注意: UIImage.draw 依赖 UIKit 当前上下文, 必须用 UIGraphicsImageRenderer 包裹
+    nonisolated private static func renderRegion(
+        tiles: [RegionTile],
+        width: CGFloat, height: CGFloat
+    ) -> UIImage {
+        let size = CGSize(width: max(width, 1), height: max(height, 1))
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        format.opaque = true
+        let renderer = UIGraphicsImageRenderer(size: size, format: format)
+        return renderer.image { context in
+            UIColor.black.setFill()
+            context.fill(CGRect(origin: .zero, size: size))
+            for t in tiles {
+                t.image.draw(in: CGRect(origin: CGPoint(x: t.px, y: t.py),
+                                        size: t.image.size))
+            }
+        }
+    }
+
+    // MARK: - 数据加载
+
+    private func load() async {
+        progressText = "正在获取瓦片产品..."
+        do {
+            let products = try await api.fetchTileProducts(
+                specimenId: specimenId, ratioId: ratioId, stackId: stackId
+            )
+
+            // 只保留有 loc_mid 图的记录; 同坐标多条时保留最后一条
+            var byCoord: [String: SpecimenTileProduct] = [:]
+            for p in products where (p.locMid ?? "").isEmpty == false {
+                byCoord["\(p.locX ?? -1),\(p.locY ?? -1)"] = p
+            }
+            guard !byCoord.isEmpty else {
+                phase = .failed("该堆叠还没有瓦片产品(loc_mid 为空)。\n请先在后台对堆叠执行「拆分堆叠到地图」。")
+                return
+            }
+
+            // 坐标单位启发式: 索引坐标的最大值 = 网格块数(几十以内),
+            // 像素坐标的有效值必然 ≥512。上一版用"跨度≤8"误判了 14×11 网格。
+            let rawX = byCoord.values.map { $0.locX ?? 0 }
+            let rawY = byCoord.values.map { $0.locY ?? 0 }
+            let isIndex = (rawX.max() ?? 0) < 256 && (rawY.max() ?? 0) < 256
+            print("🔬 瓦片坐标范围 x:\(rawX.min() ?? 0)~\(rawX.max() ?? 0) y:\(rawY.min() ?? 0)~\(rawY.max() ?? 0) → \(isIndex ? "索引模式" : "像素模式")")
+
+            var metas: [TileMeta] = []
+            var maxRight: CGFloat = 0
+            var maxBottom: CGFloat = 0
+            for p in byCoord.values {
+                let rx = CGFloat(p.locX ?? 0)
+                let ry = CGFloat(p.locY ?? 0)
+                let tx = isIndex ? Int(rx) : Int(floor(rx / tileW))
+                let ty = isIndex ? Int(ry) : Int(floor(ry / tileH))
+                let px = isIndex ? rx * tileW : rx
+                let py = isIndex ? ry * tileH : ry
+                metas.append(TileMeta(tx: tx, ty: ty, px: px, py: py, url: p.locMid!))
+                maxRight = max(maxRight, px + tileW)
+                maxBottom = max(maxBottom, py + tileH)
+            }
+
+            metaByCoord = Dictionary(metas.map { ("\($0.tx),\($0.ty)", $0) },
+                                     uniquingKeysWith: { a, _ in a })
+            gridWidth = maxRight
+            gridHeight = maxBottom
+            print("🔬 瓦片 \(metas.count) 块, 网格宽 \(Int(gridWidth))px × \(Int(gridHeight))px (索引模式: \(isIndex))")
+
+            // 自动定位: HEAD 扫描各瓦片字节数, 跳过空白占位, 初始视野对准内容最大的瓦片
+            progressText = "定位标本区域..."
+            await locateSpecimen()
+
+            phase = .ready
+            ensureViewport()
+        } catch {
+            phase = .failed("加载失败: \(error.localizedDescription)")
+        }
+    }
+
+    /// 用 HEAD 请求的 content-length 找出有内容的瓦片, 把初始视野中心对准它。
+    /// 空白占位 PNG 约 1.7KB, 有内容的瓦片明显更大。
+    private func locateSpecimen() async {
+        let all = Array(metaByCoord.values)
+        guard !all.isEmpty else { return }
+
+        var best: TileMeta?
+        var bestSize = 0
+        await withTaskGroup(of: (TileMeta, Int).self) { group in
+            for m in all {
+                group.addTask {
+                    let len = await api.fetchTileContentLength(urlString: m.url)
+                    return (m, len)
+                }
+            }
+            for await (m, len) in group where len > bestSize {
+                bestSize = len
+                best = m
+            }
+        }
+
+        if let m = best, bestSize > 8000 {
+            center = CGPoint(x: m.px + tileW / 2, y: m.py + tileH / 2)
+            print("🎯 标本初始定位: 瓦片(\(m.tx),\(m.ty)), content-length \(bestSize)B")
+        } else {
+            center = CGPoint(x: gridWidth / 2, y: gridHeight / 2)
+            print("🎯 未定位到明显标本区域(HEAD/Range 全部失败或都 ≤8KB), 视野取网格中心")
+        }
+    }
+}
+
+// MARK: - 放大倍数选择 Sheet
+
+struct RatioPickerSheet: View {
+    let ratios: [SpecimenRatio]
+    @Binding var selectedIndex: Int?
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            List {
+                ForEach(Array(ratios.enumerated()), id: \.element.id) { idx, ratio in
+                    Button {
+                        selectedIndex = idx
+                        dismiss()
+                    } label: {
+                        HStack {
+                            Text("\(ratio.ratio)x")
+                                .font(.system(size: 15))
+                                .foregroundColor(WarmTheme.textPrimary)
+                            Spacer()
+                            if selectedIndex == idx {
+                                Image(systemName: "checkmark")
+                                    .foregroundColor(WarmTheme.primary)
+                            }
+                        }
+                    }
+                }
+            }
+            .navigationTitle("选择放大倍数")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("取消") { dismiss() }
+                }
+            }
+        }
+        .presentationDetents([.medium])
+    }
+}
+
+// MARK: - 堆叠选择 Sheet
+
+struct StackPickerSheet: View {
+    let stacks: [SpecimenTileStacked]
+    @Binding var selectedIndex: Int?
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            List {
+                ForEach(Array(stacks.enumerated()), id: \.element.id) { idx, stack in
+                    Button {
+                        selectedIndex = idx
+                        dismiss()
+                    } label: {
+                        HStack {
+                            Text(stack.stackName ?? "堆叠 \(stack.id)")
+                                .font(.system(size: 15))
+                                .foregroundColor(WarmTheme.textPrimary)
+                            Spacer()
+                            if selectedIndex == idx {
+                                Image(systemName: "checkmark")
+                                    .foregroundColor(WarmTheme.primary)
+                            }
+                        }
+                    }
+                }
+            }
+            .navigationTitle("选择堆叠")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("取消") { dismiss() }
+                }
+            }
+        }
+        .presentationDetents([.medium])
+    }
+}

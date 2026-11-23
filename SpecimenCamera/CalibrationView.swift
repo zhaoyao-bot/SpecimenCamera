@@ -272,10 +272,11 @@ struct CalibrationCameraView: View {
             .padding(.vertical, 12)
             .background(Color.black.opacity(0.7))
 
-            // 镜头切换(主摄 / 长焦)
-            HStack {
+            // 镜头切换(超广角/主摄/长焦) + 重新测光
+            HStack(spacing: 8) {
                 Spacer()
                 LensSwitchPicker(cameraManager: cameraManager)
+                RemeteringButton(cameraManager: cameraManager)
                 Spacer()
             }
             .padding(.vertical, 8)

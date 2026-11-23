@@ -150,14 +150,14 @@ class CameraManager: NSObject, ObservableObject {
         captureSession.commitConfiguration()
 
         let session = captureSession
-        DispatchQueue.global(qos: .userInitiated).async {
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             session.startRunning()
-            Task { @MainActor [weak self] in
+            Task { @MainActor in
                 self?.isCameraReady = true
             }
             // 等自动曝光/白平衡收敛稳定后再锁定，避免锁在不佳的值上
             DispatchQueue.global().asyncAfter(deadline: .now() + 1.2) {
-                Task { @MainActor [weak self] in
+                Task { @MainActor in
                     self?.lockFocusInfinityAndExposure()
                 }
             }
@@ -262,6 +262,17 @@ class CameraManager: NSObject, ObservableObject {
         configureDevice { dev in
             if dev.isExposureModeSupported(.continuousAutoExposure) {
                 dev.exposureMode = .continuousAutoExposure
+            }
+        }
+    }
+
+    /// 重新测光：先解锁曝光回到自动，等 1 秒让自动曝光收敛，再重新锁死曝光 + 锁无穷远对焦。
+    /// 用于光源变化(换灯泡/调亮度)后手动重新适应，不必重启 App。
+    func remeasureExposureAndLock() {
+        unlockExposure()
+        DispatchQueue.global().asyncAfter(deadline: .now() + 1.0) { [weak self] in
+            Task { @MainActor in
+                self?.lockFocusInfinityAndExposure()
             }
         }
     }

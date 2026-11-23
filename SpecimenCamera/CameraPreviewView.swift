@@ -70,11 +70,11 @@ struct LensSwitchPicker: View {
                     .font(.system(size: 11, weight: .bold, design: .rounded))
                 // 机型没有该镜头时明确显示"机型不支持"，避免用户以为可点却没反应
                 Text(unavailable ? "机型不支持" : lens.hint)
-                    .font(.system(size: 7.5, weight: .medium))
+                    .font(.system(size: 7, weight: .medium))
                     .opacity(0.75)
             }
             .foregroundColor(unavailable ? .gray : (isSelected ? .white : .white.opacity(0.55)))
-            .padding(.horizontal, 8)
+            .padding(.horizontal, 6)
             .padding(.vertical, 5)
             .background(
                 Capsule().fill(isSelected ? WarmTheme.accent.opacity(0.55) : Color.clear)
@@ -82,5 +82,46 @@ struct LensSwitchPicker: View {
         }
         .disabled(unavailable || isSelected)
         .opacity(unavailable ? 0.3 : 1)
+    }
+}
+
+// MARK: - Re-metering Button (重新测光)
+
+/// 光源变化(换灯泡/调亮度)后，点一下重新自动测光，1 秒后重新锁死曝光。
+/// 避免为了重新适应光源而重启 App 或切镜头。
+struct RemeteringButton: View {
+    @ObservedObject var cameraManager: CameraManager
+    @State private var isMetering = false
+
+    var body: some View {
+        Button {
+            guard !isMetering else { return }
+            isMetering = true
+            cameraManager.remeasureExposureAndLock()
+            // 1 秒自动测光 + 0.3 秒缓冲后恢复可点
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.3) {
+                isMetering = false
+            }
+        } label: {
+            VStack(spacing: 1) {
+                if isMetering {
+                    ProgressView()
+                        .scaleEffect(0.6)
+                        .tint(WarmTheme.accent)
+                        .frame(height: 12)
+                } else {
+                    Image(systemName: "camera.metering.center.weighted")
+                        .font(.system(size: 12, weight: .bold))
+                }
+                Text(isMetering ? "测光中" : "测光")
+                    .font(.system(size: 7, weight: .medium))
+            }
+            .foregroundColor(isMetering ? WarmTheme.accent : .white.opacity(0.75))
+            .padding(.horizontal, 7)
+            .padding(.vertical, 5)
+            .background(Color.white.opacity(0.12))
+            .clipShape(Capsule())
+        }
+        .disabled(isMetering)
     }
 }

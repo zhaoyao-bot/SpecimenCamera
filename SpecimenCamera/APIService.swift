@@ -217,7 +217,7 @@ class APIService: ObservableObject {
     /// 会被笼统报成"图片解析失败"，掩盖真实原因。
     /// 内网环境：每次都直接请求后台，完全绕过本地/远程缓存
     /// (弱网下若缓存到损坏/不完整的响应，会导致后续反复失败)
-    private func fetchTileImageData(urlString: String) async throws -> Data {
+    func fetchTileImageData(urlString: String) async throws -> Data {
         guard let url = URL(string: "\(baseURL)/manager/specimen-tiles/image?image_url=\(urlString.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? urlString)") else {
             throw APIError.invalidURL
         }
@@ -245,6 +245,45 @@ class APIService: ObservableObject {
             throw APIError.invalidImage
         }
         return data
+    }
+
+    /// 探测图片字节数(用于区分空白占位瓦片与有内容的瓦片)。失败返回 0。
+    /// 先 HEAD 拿 Content-Length; 服务器不回长度/不支持 HEAD 时,
+    /// 用 Range: bytes=0-0 的 206 响应解析 Content-Range 总长。
+    func fetchTileContentLength(urlString: String) async -> Int {
+        guard let url = URL(string: "\(baseURL)/manager/specimen-tiles/image?image_url=\(urlString.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? urlString)") else {
+            return 0
+        }
+
+        // 1. HEAD
+        var head = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalAndRemoteCacheData, timeoutInterval: 15)
+        head.httpMethod = "HEAD"
+        if let (_, response) = try? await URLSession.shared.data(for: head),
+           let http = response as? HTTPURLResponse,
+           (200..<300).contains(http.statusCode) {
+            let len = http.expectedContentLength > 0
+                ? Int(http.expectedContentLength)
+                : (http.value(forHTTPHeaderField: "Content-Length")).flatMap(Int.init) ?? 0
+            if len > 0 { return len }
+        }
+
+        // 2. Range GET(代理服务器常不支持 HEAD 或不回长度)
+        var range = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalAndRemoteCacheData, timeoutInterval: 15)
+        range.setValue("bytes=0-0", forHTTPHeaderField: "Range")
+        if let (_, response) = try? await URLSession.shared.data(for: range),
+           let http = response as? HTTPURLResponse {
+            if http.statusCode == 206,
+               let contentRange = http.value(forHTTPHeaderField: "Content-Range") {
+                // 形如 "bytes 0-0/389433"
+                if let total = contentRange.split(separator: "/").last, let n = Int(total) {
+                    return n
+                }
+            }
+            if (200..<300).contains(http.statusCode) {
+                return http.value(forHTTPHeaderField: "Content-Length").flatMap(Int.init) ?? 0
+            }
+        }
+        return 0
     }
 
     /// 获取父图/大图。弱网(实验室)下会自动重试，最多 3 次，逐次退避。
@@ -300,6 +339,40 @@ class APIService: ObservableObject {
     /// Fetch a single tile by ID (returns full data including image URLs)
     func fetchTileById(tileId: Int) async throws -> SpecimenTile {
         return try await request("/manager/specimen-tiles/find/\(tileId)")
+    }
+
+    // MARK: - Tile Products (瓦片产品: 显微镜模拟器数据源)
+
+    /// 兼容两种响应风格: 直接返回数组, 或 { products: [...] } / { data: [...] } 包裹
+    struct TileProductsEnvelope: Decodable {
+        let products: [SpecimenTileProduct]
+
+        init(from decoder: Decoder) throws {
+            let single = try decoder.singleValueContainer()
+            if let list = try? single.decode([SpecimenTileProduct].self) {
+                products = list
+                return
+            }
+            struct Inner: Decodable {
+                let products: [SpecimenTileProduct]?
+                let data: [SpecimenTileProduct]?
+                let tileProducts: [SpecimenTileProduct]?
+            }
+            let obj = try single.decode(Inner.self)
+            products = obj.products ?? obj.data ?? obj.tileProducts ?? []
+        }
+    }
+
+    func fetchTileProducts(specimenId: Int, ratioId: Int, stackId: Int) async throws -> [SpecimenTileProduct] {
+        let env: TileProductsEnvelope = try await request(
+            "/manager/specimen-tile-products/list",
+            queryParams: [
+                "specimen_id": "\(specimenId)",
+                "ratio_id": "\(ratioId)",
+                "stack_id": "\(stackId)"
+            ]
+        )
+        return env.products
     }
 }
 
