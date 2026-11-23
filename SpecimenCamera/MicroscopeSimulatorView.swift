@@ -512,23 +512,25 @@ struct MicroscopeObserverView: View {
         GeometryReader { geo in
             let s = min(geo.size.width, geo.size.height)
 
-            // 三焦面混合(回退验证): 图层 z 序 bottom → mid → top(从下到上)。
-            // 权重: mid=1-|focus|, top=max(0,focus), bottom=max(0,-focus), 之和恒为 1
-            let wBlank: Float = 0
-            let wBottom = max(0, -focus)
-            let wMid = 1 - abs(focus)
-            let wTop = max(0, focus)
+            // 五层帐篷插值: blank → bottom → mid → top → blank (从下到上)
+            // 节点位置 n: blank=0/4, bottom=1, mid=2, top=3; n=(focus+1)*2 ∈ [0,4]
+            // 帐篷函数 max(0, 1-|n-k|): 任意时刻只有相邻两层权重>0, 之和恒为 1
+            let n = min(max((focus + 1) * 2, 0), 4)
+            let wBlank = max(0, 1 - n) + max(0, 1 - abs(n - 4))
+            let wBottom = max(0, 1 - abs(n - 1))
+            let wMid = max(0, 1 - abs(n - 2))
+            let wTop = max(0, 1 - abs(n - 3))
 
             let content = ZStack {
                 Color.black
                 if wBlank > 0, let bc = blankColor {
                     bc.opacity(Double(wBlank))
                 }
-                if altLayerName == "bottom", let alt = viewportImageAlt {
+                if wBottom > 0, altLayerName == "bottom", let alt = viewportImageAlt {
                     layerImage(alt, viewportOriginAlt, opacity: Double(wBottom))
                 }
                 layerImage(vp, viewportOrigin, opacity: Double(wMid))
-                if altLayerName == "top", let alt = viewportImageAlt {
+                if wTop > 0, altLayerName == "top", let alt = viewportImageAlt {
                     layerImage(alt, viewportOriginAlt, opacity: Double(wTop))
                 }
             }
@@ -591,8 +593,8 @@ struct MicroscopeObserverView: View {
                 .fill(focus == 0 ? Color.green : Color.yellow)
                 .frame(width: 7, height: 7)
             Text(focus == 0 ? "合焦" : (focus > 0
-                ? "后离焦 \(String(format: "%.1f", focus))"
-                : "前离焦 \(String(format: "%.1f", -focus))"))
+                ? "前离焦 \(String(format: "%.1f", focus))"
+                : "后离焦 \(String(format: "%.1f", -focus))"))
                 .font(.system(size: 11, weight: .semibold, design: .rounded))
                 .foregroundColor(.white.opacity(0.85))
         }
@@ -718,9 +720,9 @@ struct MicroscopeObserverView: View {
             viewportTask = Task { await buildViewport(layer: "mid", x0: x0, y0: y0, x1: x1, y1: y1, signature: signature) }
         }
 
-        // ---- 三焦面顶层(层序 bottom→mid→top, 从下到上) ----
+        // ---- 五层插值的 alt 层(blank→bottom→mid→top→blank, 从下到上) ----
         // + (向上调焦) → top, − (向下调焦) → bottom
-        // 接近合焦(|focus| ≤ 0.05)时顶层 opacity≈0, 不需要拼合
+        // 接近合焦(|focus| ≤ 0.05)时 alt 权重很小(≤0.1), 不需要拼合
         let wantAlt = focus > 0.05 ? "top" : (focus < -0.05 ? "bottom" : "")
         guard wantAlt.isEmpty == false else { return }
         let altSignature = "\(wantAlt)|\(x0),\(y0),\(x1),\(y1)"
