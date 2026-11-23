@@ -488,7 +488,8 @@ struct MicroscopeObserverView: View {
         .padding(.horizontal, 16)
     }
 
-    /// 调试开关: 显微镜光学 shader(色差/暗角/光阑/噪点)。false = 纯显示
+    /// shader 调用结构必须保留(实验证实: 摘除 layerEffect 结构会导致圆窗黑屏,
+    /// 机制不明)。开关 false = shader 不执行, 无暗角/色差/噪点计算, 仅为占位。
     private let useMicroscopeShader = false
 
     /// 三焦面单层图: 按视口原点居中偏移 + 混合权重
@@ -534,7 +535,7 @@ struct MicroscopeObserverView: View {
             .frame(width: s, height: s)
             .clipped()
 
-            // 光学 shader(色差/暗角/光阑/噪点)。false = 纯显示(当前验证状态)
+            // 结构占位: 此 Group+layerEffect 不可删除(删除即黑屏), 开关 false 时不执行
             Group {
                 if useMicroscopeShader {
                     content.layerEffect(
@@ -553,16 +554,6 @@ struct MicroscopeObserverView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .overlay(alignment: .bottom) {
                 viewportBadge.padding(.bottom, 6)
-            }
-            // 诊断标签: 判决渲染层级(显示=eyepieceView已渲染; 文字值=权重/图层状态)
-            .overlay(alignment: .topLeading) {
-                Text("focus=\(String(format: "%.2f", focus)) wMid=\(String(format: "%.2f", Double(1 - abs(focus)))) alt=\(altLayerName.isEmpty ? "-" : altLayerName) mid=\(Int(vp.size.width))×\(Int(vp.size.height))")
-                    .font(.system(size: 9, design: .monospaced))
-                    .foregroundColor(.green)
-                    .padding(4)
-                    .background(Color.black.opacity(0.6))
-                    .clipShape(RoundedRectangle(cornerRadius: 4))
-                    .padding(6)
             }
             .onAppear {
                 if windowSize != geo.size { windowSize = geo.size }
@@ -804,7 +795,6 @@ struct MicroscopeObserverView: View {
         // 但整层一块都没有时不更新 UI: 显示一张全透明顶层会把 mid 权重压低 → 露黑底
         if region.isEmpty {
             if layer == "mid" { return }
-            print("⚠️ 拼合[\(layer)] 该区域无任何焦面瓦片(URL空或下载失败), 顶层保持空")
             return
         }
 
@@ -821,12 +811,10 @@ struct MicroscopeObserverView: View {
             viewportImage = image
             viewportOrigin = CGPoint(x: CGFloat(x0) * tileW, y: CGFloat(y0) * tileH)
             viewportTiles = (x0, y0, x1, y1)
-            print("🖼 拼合完成[mid] region=\(region.count)块 尺寸=\(Int(width))×\(Int(height))")
         } else {
             viewportImageAlt = image
             viewportOriginAlt = CGPoint(x: CGFloat(x0) * tileW, y: CGFloat(y0) * tileH)
             altLayerName = layer
-            print("🖼 拼合完成[\(layer)] region=\(region.count)块")
         }
     }
 
@@ -894,7 +882,6 @@ struct MicroscopeObserverView: View {
             let rawX = byCoord.values.map { $0.locX ?? 0 }
             let rawY = byCoord.values.map { $0.locY ?? 0 }
             let isIndex = (rawX.max() ?? 0) < 256 && (rawY.max() ?? 0) < 256
-            print("🔬 瓦片坐标范围 x:\(rawX.min() ?? 0)~\(rawX.max() ?? 0) y:\(rawY.min() ?? 0)~\(rawY.max() ?? 0) → \(isIndex ? "索引模式" : "像素模式")")
 
             var metas: [TileMeta] = []
             var maxRight: CGFloat = 0
@@ -916,7 +903,6 @@ struct MicroscopeObserverView: View {
                                      uniquingKeysWith: { a, _ in a })
             gridWidth = maxRight
             gridHeight = maxBottom
-            print("🔬 瓦片 \(metas.count) 块, 网格宽 \(Int(gridWidth))px × \(Int(gridHeight))px (索引模式: \(isIndex))")
 
             // 自动定位: HEAD 扫描各瓦片字节数, 跳过空白占位, 初始视野对准内容最大的瓦片
             progressText = "定位标本区域..."
@@ -930,10 +916,6 @@ struct MicroscopeObserverView: View {
                 Task {
                     if let data = try? await api.fetchTileImageData(urlString: u) {
                         blankColor = await Self.averageColor(from: data)
-                        if let c = blankColor {
-                            let comps = c.cgColor?.components ?? []
-                            print("🎨 blank 层颜色 RGB = \(comps.prefix(3).map { String(format: "%.2f", $0) })")
-                        }
                     }
                 }
             }
@@ -965,10 +947,8 @@ struct MicroscopeObserverView: View {
 
         if let m = best, bestSize > 8000 {
             center = CGPoint(x: m.px + tileW / 2, y: m.py + tileH / 2)
-            print("🎯 标本初始定位: 瓦片(\(m.tx),\(m.ty)), content-length \(bestSize)B")
         } else {
             center = CGPoint(x: gridWidth / 2, y: gridHeight / 2)
-            print("🎯 未定位到明显标本区域(HEAD/Range 全部失败或都 ≤8KB), 视野取网格中心")
         }
     }
 }
