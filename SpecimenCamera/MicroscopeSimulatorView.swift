@@ -55,8 +55,9 @@ struct MicroscopeSetupView: View {
     }
 
     var body: some View {
-        NavigationStack {
-            ZStack {
+        // 注意: 本页已被 push 进 ContentView 的 NavigationStack,
+        // 不再内嵌 NavigationStack(嵌套会导致观察页返回时退到根页面)
+        ZStack {
                 LinearGradient(
                     colors: [WarmTheme.bgGradientTop, WarmTheme.bgGradientBottom],
                     startPoint: .topLeading,
@@ -125,8 +126,6 @@ struct MicroscopeSetupView: View {
                     MicroscopeObserverView(specimenId: sid, ratioId: rid, stackId: stkId)
                 }
             }
-        }
-        .navigationViewStyle(.stack)
     }
 
     private var headerIcon: some View {
@@ -311,12 +310,23 @@ struct MicroscopeObserverView: View {
     }
 
     /// 瓦片元数据: tx/ty 网格索引(缓存 key), px/py 源图绝对像素(拼合定位)
+    /// 三焦面 URL: mid 恒有; top/bottom 可能为空(该块无此焦面)
     private struct TileMeta: Sendable {
         let tx: Int
         let ty: Int
         let px: CGFloat
         let py: CGFloat
         let url: String
+        let urlTop: String?
+        let urlBottom: String?
+
+        func url(for layer: String) -> String? {
+            switch layer {
+            case "top": return urlTop
+            case "bottom": return urlBottom
+            default: return url
+            }
+        }
     }
 
     /// 参与拼合的单块瓦片
@@ -342,15 +352,29 @@ struct MicroscopeObserverView: View {
     @State private var viewportTiles: (x0: Int, y0: Int, x1: Int, y1: Int) = (0, 0, -1, -1)
     @State private var viewportSignature = ""
     @State private var viewportTask: Task<Void, Never>?
-    @State private var reloadTask: Task<Void, Never>?   // 移动防抖
+    @State private var reloadTask: Task<Void, Never>?   // 移动/调焦防抖
     @State private var loadingViewport = false
     @State private var tileCache: [String: UIImage] = [:]
     @State private var focus: Float = 0
 
+    // 三焦面: 底层恒为 mid 拼合图; top/bottom 按需拼合为顶层, 透明底,
+    // 五焦面帐篷插值(focus 两端为 blank 纯色层, 见 eyepieceView)
+    @State private var viewportImageAlt: UIImage?
+    @State private var viewportOriginAlt: CGPoint = .zero
+    @State private var altLayerName = ""                // 已拼合的顶层名("top"/"bottom"/"")
+    @State private var viewportAltSignature = ""
+    @State private var viewportAltTask: Task<Void, Never>?
+
+    // blank 层: (0,0) 空白占位瓦片的平均色, 视场完全离焦时的空白背景
+    @State private var blankColor: Color?
+
     /// 源图像素 → 显示 pt 比例: 视野约覆盖 1.3 块瓦片
     private let viewScale: CGFloat = 0.5
     private let panStepPx: CGFloat = 90
-    private let tileCacheLimit = 60
+    private let tileCacheLimit = 150
+
+    /// 调焦步进: focus 全程 [-1,1], 0.05 × 40 步(可调)
+    private let focusStep: Float = 0.05
 
     var body: some View {
         ZStack {
@@ -435,6 +459,7 @@ struct MicroscopeObserverView: View {
                 }
             }
             .frame(width: s, height: s)
+            .clipShape(Circle())
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .onAppear {
                 if windowSize != geo.size { windowSize = geo.size }
@@ -463,38 +488,60 @@ struct MicroscopeObserverView: View {
         .padding(.horizontal, 16)
     }
 
-    /// 调试开关: 显微镜热扩散 shader。false = 纯显示拼合图(验证显示管线)
+    /// 调试开关: 显微镜光学 shader(色差/暗角/光阑/噪点)。false = 纯显示
     private let useMicroscopeShader = false
+
+    /// 三焦面单层图: 按视口原点居中偏移 + 混合权重
+    private func layerImage(_ img: UIImage, _ origin: CGPoint, opacity: Double) -> some View {
+        Image(uiImage: img)
+            .resizable()
+            .interpolation(.medium)
+            .frame(width: img.size.width * viewScale,
+                   height: img.size.height * viewScale)
+            // Image 在 ZStack 中已居中(图中心 = 源图 origin+vpSize/2 处),
+            // 需要移动量 = 把"源图 center 点"对到视图中心:
+            // offset = (origin + vpSize/2 - center) * viewScale
+            .offset(x: (origin.x + img.size.width / 2 - center.x) * viewScale,
+                    y: (origin.y + img.size.height / 2 - center.y) * viewScale)
+            .opacity(opacity)
+    }
 
     @ViewBuilder
     private func eyepieceView(_ vp: UIImage) -> some View {
         GeometryReader { geo in
             let s = min(geo.size.width, geo.size.height)
 
+            // 三焦面混合(回退验证): 图层 z 序 bottom → mid → top(从下到上)。
+            // 权重: mid=1-|focus|, top=max(0,focus), bottom=max(0,-focus), 之和恒为 1
+            let wBlank: Float = 0
+            let wBottom = max(0, -focus)
+            let wMid = 1 - abs(focus)
+            let wTop = max(0, focus)
+
             let content = ZStack {
                 Color.black
-                Image(uiImage: vp)
-                    .resizable()
-                    .interpolation(.medium)
-                    .frame(width: vp.size.width * viewScale,
-                           height: vp.size.height * viewScale)
-                    // Image 在 ZStack 中已居中(图中心 = 源图 origin+vpSize/2 处),
-                    // 需要移动量 = 把"源图 center 点"对到视图中心:
-                    // offset = (origin + vpSize/2 - center) * viewScale
-                    .offset(x: (viewportOrigin.x + vp.size.width / 2 - center.x) * viewScale,
-                            y: (viewportOrigin.y + vp.size.height / 2 - center.y) * viewScale)
+                if wBlank > 0, let bc = blankColor {
+                    bc.opacity(Double(wBlank))
+                }
+                if altLayerName == "bottom", let alt = viewportImageAlt {
+                    layerImage(alt, viewportOriginAlt, opacity: Double(wBottom))
+                }
+                layerImage(vp, viewportOrigin, opacity: Double(wMid))
+                if altLayerName == "top", let alt = viewportImageAlt {
+                    layerImage(alt, viewportOriginAlt, opacity: Double(wTop))
+                }
             }
             .frame(width: s, height: s)
             .clipped()
 
+            // 光学 shader(色差/暗角/光阑/噪点)。false = 纯显示(当前验证状态)
             Group {
                 if useMicroscopeShader {
                     content.layerEffect(
                         ShaderLibrary.microscopeView(
-                            .float2(CGSize(width: s, height: s)),
-                            .float(focus)
+                            .float2(CGSize(width: s, height: s))
                         ),
-                        maxSampleOffset: CGSize(width: 72, height: 72)
+                        maxSampleOffset: CGSize(width: 8, height: 8)
                     )
                 } else {
                     content
@@ -506,6 +553,16 @@ struct MicroscopeObserverView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .overlay(alignment: .bottom) {
                 viewportBadge.padding(.bottom, 6)
+            }
+            // 诊断标签: 判决渲染层级(显示=eyepieceView已渲染; 文字值=权重/图层状态)
+            .overlay(alignment: .topLeading) {
+                Text("focus=\(String(format: "%.2f", focus)) wMid=\(String(format: "%.2f", Double(1 - abs(focus)))) alt=\(altLayerName.isEmpty ? "-" : altLayerName) mid=\(Int(vp.size.width))×\(Int(vp.size.height))")
+                    .font(.system(size: 9, design: .monospaced))
+                    .foregroundColor(.green)
+                    .padding(4)
+                    .background(Color.black.opacity(0.6))
+                    .clipShape(RoundedRectangle(cornerRadius: 4))
+                    .padding(6)
             }
             .onAppear {
                 if windowSize != geo.size { windowSize = geo.size }
@@ -593,10 +650,10 @@ struct MicroscopeObserverView: View {
                 .font(.system(size: 12, weight: .medium))
                 .foregroundColor(.white.opacity(0.7))
             HStack(spacing: 4) {
-                padButton(icon: "plus") { focus = min(1, focus + 0.2) }
-                padButton(icon: "minus") { focus = max(-1, focus - 0.2) }
+                padButton(icon: "plus") { setFocus(min(1, focus + focusStep)) }
+                padButton(icon: "minus") { setFocus(max(-1, focus - focusStep)) }
             }
-            Button("合焦") { focus = 0 }
+            Button("合焦") { setFocus(0) }
                 .font(.system(size: 12, weight: .semibold))
                 .foregroundColor(WarmTheme.accent)
                 .padding(.horizontal, 10)
@@ -626,6 +683,16 @@ struct MicroscopeObserverView: View {
 
     // MARK: - 按需视口加载
 
+    /// 调焦: 立即更新显示(顶层 opacity), 防抖后按需拼合顶层焦面
+    private func setFocus(_ v: Float) {
+        focus = v
+        reloadTask?.cancel()
+        reloadTask = Task {
+            try? await Task.sleep(for: .milliseconds(200))
+            if !Task.isCancelled { ensureViewport() }
+        }
+    }
+
     /// 视野中心变化后计算所需瓦片范围。
     /// 调试模式(只拼视野中心所在的单块瓦片, 隔离验证"一块能否看到标本"):
     /// autoLocate = true → 拼合范围恒为 center 所在的 1×1 块;
@@ -651,22 +718,29 @@ struct MicroscopeObserverView: View {
             y1 = max(Int(floor((center.y + half - 0.001) / tileH)), 0)
         }
 
-        if viewportTiles.x0 <= x0, viewportTiles.x1 >= x1,
-           viewportTiles.y0 <= y0, viewportTiles.y1 >= y1 {
-            return
+        let signature = "\(x0),\(y0),\(x1),\(y1)"
+        if !(viewportTiles.x0 <= x0 && viewportTiles.x1 >= x1 &&
+             viewportTiles.y0 <= y0 && viewportTiles.y1 >= y1),
+           signature != viewportSignature {
+            viewportSignature = signature
+            // 不取消旧任务: 旧任务靠签名守卫自行退出, 已完成的下载仍会入缓存
+            viewportTask = Task { await buildViewport(layer: "mid", x0: x0, y0: y0, x1: x1, y1: y1, signature: signature) }
         }
 
-        let signature = "\(x0),\(y0),\(x1),\(y1)"
-        guard signature != viewportSignature else { return }
-        viewportSignature = signature
-
-        // 不取消旧任务: 旧任务靠签名守卫自行退出, 已完成的下载仍会入缓存
-        viewportTask = Task { await buildViewport(x0: x0, y0: y0, x1: x1, y1: y1, signature: signature) }
+        // ---- 三焦面顶层(层序 bottom→mid→top, 从下到上) ----
+        // + (向上调焦) → top, − (向下调焦) → bottom
+        // 接近合焦(|focus| ≤ 0.05)时顶层 opacity≈0, 不需要拼合
+        let wantAlt = focus > 0.05 ? "top" : (focus < -0.05 ? "bottom" : "")
+        guard wantAlt.isEmpty == false else { return }
+        let altSignature = "\(wantAlt)|\(x0),\(y0),\(x1),\(y1)"
+        guard altSignature != viewportAltSignature else { return }
+        viewportAltSignature = altSignature
+        viewportAltTask = Task { await buildViewport(layer: wantAlt, x0: x0, y0: y0, x1: x1, y1: y1, signature: altSignature) }
     }
 
-    private func buildViewport(x0: Int, y0: Int, x1: Int, y1: Int, signature: String) async {
+    private func buildViewport(layer: String, x0: Int, y0: Int, x1: Int, y1: Int, signature: String) async {
         // 签名已变(期间又有新的视口请求) → 本次作废, 不下载
-        guard signature == viewportSignature else { return }
+        guard signature == (layer == "mid" ? viewportSignature : viewportAltSignature) else { return }
         loadingViewport = true
         defer { loadingViewport = false }
 
@@ -674,8 +748,12 @@ struct MicroscopeObserverView: View {
         //    已完成的下载结果也全部入缓存, 不浪费
         var needed: [TileMeta] = []
         for ty in y0...y1 {
-            for tx in x0...x1 where tileCache["\(tx),\(ty)"] == nil {
-                if let m = metaByCoord["\(tx),\(ty)"] { needed.append(m) }
+            for tx in x0...x1 {
+                let key = "\(layer)|\(tx),\(ty)"
+                guard tileCache[key] == nil,
+                      let m = metaByCoord["\(tx),\(ty)"],
+                      m.url(for: layer)?.isEmpty == false else { continue }
+                needed.append(m)
             }
         }
         if !needed.isEmpty {
@@ -684,7 +762,7 @@ struct MicroscopeObserverView: View {
                 for (i, m) in needed.enumerated() {
                     group.addTask {
                         do {
-                            let data = try await api.fetchTileImageData(urlString: m.url)
+                            let data = try await api.fetchTileImageData(urlString: m.url(for: layer)!)
                             return (i, UIImage(data: data))
                         } catch {
                             return (i, nil)
@@ -696,14 +774,14 @@ struct MicroscopeObserverView: View {
                     progressText = "加载瓦片 \(fetched)/\(needed.count)"
                     if let img {
                         let m = needed[i]
-                        tileCache["\(m.tx),\(m.ty)"] = img
+                        tileCache["\(layer)|\(m.tx),\(m.ty)"] = img
                     }
                 }
             }
         }
 
         // 2. 期间签名又变了 → 只攒缓存, 不更新 UI(不清理缓存)
-        guard signature == viewportSignature else { return }
+        guard signature == (layer == "mid" ? viewportSignature : viewportAltSignature) else { return }
 
         // 3. 收集本视口区域内的瓦片(清理缓存前取出)
         //    px/py 必须是"相对区域原点"的画布坐标:
@@ -713,7 +791,7 @@ struct MicroscopeObserverView: View {
         var region: [RegionTile] = []
         for ty in y0...y1 {
             for tx in x0...x1 {
-                if let img = tileCache["\(tx),\(ty)"],
+                if let img = tileCache["\(layer)|\(tx),\(ty)"],
                    let m = metaByCoord["\(tx),\(ty)"] {
                     region.append(RegionTile(px: m.px - originPx,
                                              py: m.py - originPy,
@@ -722,35 +800,69 @@ struct MicroscopeObserverView: View {
             }
         }
         if tileCache.count > tileCacheLimit { tileCache.removeAll() }
-        guard !region.isEmpty else { return }
+        // 顶层焦面允许部分块缺失(该块无此焦面) → 拼合图对应区域透明, 露出底层 mid。
+        // 但整层一块都没有时不更新 UI: 显示一张全透明顶层会把 mid 权重压低 → 露黑底
+        if region.isEmpty {
+            if layer == "mid" { return }
+            print("⚠️ 拼合[\(layer)] 该区域无任何焦面瓦片(URL空或下载失败), 顶层保持空")
+            return
+        }
 
         // 4. 后台拼合局部图
         let width = CGFloat(x1 - x0 + 1) * tileW
         let height = CGFloat(y1 - y0 + 1) * tileH
         let image = await Task.detached(priority: .userInitiated) {
-            Self.renderRegion(tiles: region, width: width, height: height)
+            Self.renderRegion(tiles: region, width: width, height: height,
+                              opaque: layer == "mid")
         }.value
-        guard signature == viewportSignature else { return }
+        guard signature == (layer == "mid" ? viewportSignature : viewportAltSignature) else { return }
 
-        viewportImage = image
-        viewportOrigin = CGPoint(x: CGFloat(x0) * tileW, y: CGFloat(y0) * tileH)
-        viewportTiles = (x0, y0, x1, y1)
+        if layer == "mid" {
+            viewportImage = image
+            viewportOrigin = CGPoint(x: CGFloat(x0) * tileW, y: CGFloat(y0) * tileH)
+            viewportTiles = (x0, y0, x1, y1)
+            print("🖼 拼合完成[mid] region=\(region.count)块 尺寸=\(Int(width))×\(Int(height))")
+        } else {
+            viewportImageAlt = image
+            viewportOriginAlt = CGPoint(x: CGFloat(x0) * tileW, y: CGFloat(y0) * tileH)
+            altLayerName = layer
+            print("🖼 拼合完成[\(layer)] region=\(region.count)块")
+        }
+    }
+
+    /// 取瓦片图像的平均颜色(缩到 1×1 采样), 用于 blank 层纯色
+    nonisolated private static func averageColor(from data: Data) async -> Color? {
+        guard let img = UIImage(data: data), let cg = img.cgImage else { return nil }
+        return await Task.detached(priority: .utility) {
+            var pixel = [UInt8](repeating: 0, count: 4)
+            let ctx = CGContext(data: &pixel, width: 1, height: 1,
+                                bitsPerComponent: 8, bytesPerRow: 4,
+                                space: CGColorSpaceCreateDeviceRGB(),
+                                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+            ctx?.draw(cg, in: CGRect(x: 0, y: 0, width: 1, height: 1))
+            return Color(red: Double(pixel[0]) / 255.0,
+                         green: Double(pixel[1]) / 255.0,
+                         blue: Double(pixel[2]) / 255.0)
+        }.value
     }
 
     /// 拼合局部区域(scale=1: UIImage.size 即源图像素)
     /// 注意: UIImage.draw 依赖 UIKit 当前上下文, 必须用 UIGraphicsImageRenderer 包裹
     nonisolated private static func renderRegion(
         tiles: [RegionTile],
-        width: CGFloat, height: CGFloat
+        width: CGFloat, height: CGFloat,
+        opaque: Bool = true
     ) -> UIImage {
         let size = CGSize(width: max(width, 1), height: max(height, 1))
         let format = UIGraphicsImageRendererFormat()
         format.scale = 1
-        format.opaque = true
+        format.opaque = opaque
         let renderer = UIGraphicsImageRenderer(size: size, format: format)
         return renderer.image { context in
-            UIColor.black.setFill()
-            context.fill(CGRect(origin: .zero, size: size))
+            if opaque {
+                UIColor.black.setFill()
+                context.fill(CGRect(origin: .zero, size: size))
+            }
             for t in tiles {
                 t.image.draw(in: CGRect(origin: CGPoint(x: t.px, y: t.py),
                                         size: t.image.size))
@@ -794,7 +906,8 @@ struct MicroscopeObserverView: View {
                 let ty = isIndex ? Int(ry) : Int(floor(ry / tileH))
                 let px = isIndex ? rx * tileW : rx
                 let py = isIndex ? ry * tileH : ry
-                metas.append(TileMeta(tx: tx, ty: ty, px: px, py: py, url: p.locMid!))
+                metas.append(TileMeta(tx: tx, ty: ty, px: px, py: py,
+                                      url: p.locMid!, urlTop: p.locTop, urlBottom: p.locBottom))
                 maxRight = max(maxRight, px + tileW)
                 maxBottom = max(maxBottom, py + tileH)
             }
@@ -811,6 +924,19 @@ struct MicroscopeObserverView: View {
 
             phase = .ready
             ensureViewport()
+
+            // blank 层: 异步取 (0,0) 空白占位瓦片的平均色(不阻塞进入观察)
+            if let m0 = metaByCoord["0,0"], let u = m0.url(for: "mid") {
+                Task {
+                    if let data = try? await api.fetchTileImageData(urlString: u) {
+                        blankColor = await Self.averageColor(from: data)
+                        if let c = blankColor {
+                            let comps = c.cgColor?.components ?? []
+                            print("🎨 blank 层颜色 RGB = \(comps.prefix(3).map { String(format: "%.2f", $0) })")
+                        }
+                    }
+                }
+            }
         } catch {
             phase = .failed("加载失败: \(error.localizedDescription)")
         }
