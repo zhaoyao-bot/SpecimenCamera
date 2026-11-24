@@ -123,7 +123,11 @@ struct MicroscopeSetupView: View {
             }
             .navigationDestination(isPresented: $navigateToObserver) {
                 if let sid = specimenId, let rid = ratioId, let stkId = stackId {
-                    MicroscopeObserverView(specimenId: sid, ratioId: rid, stackId: stkId)
+                    MicroscopeObserverView(
+                        specimenId: sid, ratioId: rid, stackId: stkId,
+                        ratioText: ratioLabel,
+                        lightLevel: selectedStackIndex.flatMap { stacks.indices.contains($0) ? stacks[$0].light : nil }
+                    )
                 }
             }
     }
@@ -294,12 +298,31 @@ struct MicroscopeSetupView: View {
     }
 }
 
+// MARK: - Color hex helper
+
+extension Color {
+    init(hex: UInt32) {
+        self.init(red: Double((hex >> 16) & 0xFF) / 255,
+                  green: Double((hex >> 8) & 0xFF) / 255,
+                  blue: Double(hex & 0xFF) / 255)
+    }
+}
+
 // MARK: - 显微镜模拟器: 观察页(按需加载视口瓦片)
 
 struct MicroscopeObserverView: View {
     let specimenId: Int
     let ratioId: Int
     let stackId: Int
+    /// 当前堆叠的放大倍率文本(如 "10x"), 用于物镜按钮选中态
+    var ratioText: String? = nil
+    /// 当前堆叠的光源亮度(1~10 级, 来自 stack.light)
+    var lightLevel: Double? = nil
+
+    /// APK 观察页规格(反编译 com.stellarx.wwai SpecimenObservationPageKt)
+    private let viewportBg = Color(red: 0xF0 / 255, green: 0xEA / 255, blue: 0xF5 / 255)  // #F0EAF5
+    private let objectiveSelectedBg = Color(red: 0x63 / 255, green: 0x75 / 255, blue: 0xF4 / 255)  // #6375F4
+    private let objectiveUnselectedText = Color(red: 0x7A / 255, green: 0x7A / 255, blue: 0x7A / 255)  // #7A7A7A
 
     @StateObject private var api = APIService.shared
 
@@ -378,61 +401,85 @@ struct MicroscopeObserverView: View {
 
     var body: some View {
         ZStack {
-            LinearGradient(
-                colors: [Color(red: 0.10, green: 0.08, blue: 0.06),
-                         Color(red: 0.02, green: 0.02, blue: 0.02)],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
-            .ignoresSafeArea()
+            // APK: Image(bg_project, fillMaxSize, ContentScale.FillBounds)
+            Image("bg_project")
+                .resizable()
+                .scaledToFill()
+                .ignoresSafeArea()
+                .clipped()
 
-            VStack(spacing: 14) {
-                infoBar
-                Spacer()
-
-                switch phase {
-                case .loading:
-                    VStack(spacing: 14) {
-                        ProgressView()
-                            .scaleEffect(1.2)
-                            .tint(WarmTheme.accent)
-                        Text(progressText.isEmpty ? "正在加载瓦片产品..." : progressText)
-                            .font(.system(size: 13))
-                            .foregroundColor(.white.opacity(0.75))
+            switch phase {
+            case .loading:
+                VStack(spacing: 14) {
+                    ProgressView()
+                        .scaleEffect(1.2)
+                        .tint(WarmTheme.accent)
+                    Text(progressText.isEmpty ? "正在加载瓦片产品..." : progressText)
+                        .font(.system(size: 13))
+                        .foregroundColor(.white.opacity(0.75))
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            case .failed(let message):
+                VStack(spacing: 14) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .font(.system(size: 36))
+                        .foregroundColor(.yellow.opacity(0.8))
+                    Text(message)
+                        .font(.system(size: 14))
+                        .foregroundColor(.white.opacity(0.85))
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 30)
+                    Button("重试") {
+                        phase = .loading
+                        Task { await load() }
                     }
-                case .failed(let message):
-                    VStack(spacing: 14) {
-                        Image(systemName: "exclamationmark.triangle.fill")
-                            .font(.system(size: 36))
-                            .foregroundColor(.yellow.opacity(0.8))
-                        Text(message)
-                            .font(.system(size: 14))
-                            .foregroundColor(.white.opacity(0.85))
-                            .multilineTextAlignment(.center)
-                            .padding(.horizontal, 30)
-                        Button("重试") {
-                            phase = .loading
-                            Task { await load() }
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundColor(WarmTheme.accent)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            case .ready:
+                // APK: Box { SpecimenObservationView(aspectRatio 1:1);
+                //          SpecimenBottomControls(高度 = 宽×1.166 + 10) }
+                // iOS 端导航栏有统一返回按钮, 视口整体下移避开; 控制区叠放贴底
+                GeometryReader { screen in
+                    let sw = screen.size.width
+                    ZStack(alignment: .top) {
+                        // 目镜参数 + 视场标签: 位于圆窗下层, 伸入圆窗的部分被遮挡
+                        eyepieceLabel
+                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                            .padding(.leading, 10)
+                            .padding(.top, 96)
+
+                        Group {
+                            if let vp = viewportImage {
+                                eyepieceView(vp)
+                            } else {
+                                eyepiecePlaceholder
+                            }
                         }
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundColor(WarmTheme.accent)
-                    }
-                case .ready:
-                    if let vp = viewportImage {
-                        eyepieceView(vp)
-                    } else {
-                        eyepiecePlaceholder
+                        // APK 原版: 圆窗直径约 90% 屏宽
+                        .padding(.horizontal, sw * 0.05)
+                        .aspectRatio(1, contentMode: .fit)
+                        .padding(.top, 56)
+
+                        VStack(spacing: 0) {
+                            Spacer(minLength: 0)
+                            bottomControls
+                                .frame(width: sw)
+                                // 抬高卡片, 缩小与转盘 PLAN 标注的间隙(约 1/4)
+                                .padding(.bottom, sw * 0.12)
+                        }
                     }
                 }
-
-                Spacer()
-                controls
             }
-            .padding(.vertical, 12)
         }
+        .navigationTitle("显微镜")
         .navigationBarTitleDisplayMode(.inline)
-        .toolbarBackground(Color.black.opacity(0.55), for: .navigationBar)
-        .task { await load() }
+        .toolbarBackground(.hidden, for: .navigationBar)
+        .task {
+            if let light = lightLevel { brightnessLevel = light }
+            await load()
+        }
         // 窗口尺寸就绪/变化后按需拼视口(初始由 placeholder 的 GeometryReader 触发)
         .onChange(of: windowSize) { _, _ in
             if phase == .ready { ensureViewport() }
@@ -443,23 +490,57 @@ struct MicroscopeObserverView: View {
         }
     }
 
+    /// 目镜参数 + 视场标签: 背景框(ic_field_of_view)上叠目镜参数胶囊(顶)与
+    /// 「视场」文字(底), 整体位于圆窗下层, 伸入圆窗的部分被遮挡
+    private var eyepieceLabel: some View {
+        Image("ic_field_of_view")
+            .resizable()
+            .frame(width: 88, height: 42)
+            .overlay(alignment: .top) {
+                HStack(spacing: 4) {
+                    Image("ic_layers")
+                        .resizable()
+                        .frame(width: 12, height: 11)
+                    Text("目镜 10x/18 WF")
+                        .font(.system(size: 9, weight: .semibold))
+                        .foregroundColor(.white)
+                        .lineLimit(1)
+                        .fixedSize()
+                }
+                .padding(.horizontal, 6)
+                .padding(.vertical, 3)
+                .background(Color(hex: 0x4A5AD9).opacity(0.95))
+                .clipShape(Capsule())
+                .offset(y: 6)
+            }
+            .overlay(alignment: .bottom) {
+                Text("视场")
+                    .font(.system(size: 13, weight: .bold))
+                    .foregroundColor(.white)
+                    .shadow(color: .black.opacity(0.2), radius: 1)
+                    .offset(y: -3)
+            }
+            .allowsHitTesting(false)
+    }
+
     /// 视口图未就绪时的占位: 同样包含 GeometryReader 以便尽早获得窗口尺寸
     private var eyepiecePlaceholder: some View {
         GeometryReader { geo in
-            let s = min(geo.size.width, geo.size.height)
+            let s = geo.size.width
             ZStack {
-                Color.black
+                viewportBg
                 VStack(spacing: 12) {
                     ProgressView()
                         .scaleEffect(1.1)
                         .tint(WarmTheme.accent)
                     Text(progressText.isEmpty ? "加载视口瓦片..." : progressText)
                         .font(.system(size: 12))
-                        .foregroundColor(.white.opacity(0.75))
+                        .foregroundColor(Color(hex: 0x4C4C4C))
                 }
             }
             .frame(width: s, height: s)
             .clipShape(Circle())
+            .overlay(Circle().strokeBorder(.white, lineWidth: 2))
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .onAppear {
                 if windowSize != geo.size { windowSize = geo.size }
@@ -469,23 +550,6 @@ struct MicroscopeObserverView: View {
             }
         }
         .frame(maxWidth: .infinity)
-    }
-
-    private var infoBar: some View {
-        HStack {
-            HStack(spacing: 6) {
-                Image(systemName: "eye.circle.fill")
-                    .font(.system(size: 12))
-                Text("模拟观察 · stack \(stackId)")
-                    .font(.system(size: 13, weight: .bold, design: .rounded))
-            }
-            .foregroundColor(.white.opacity(0.9))
-            Spacer()
-            Text("方向键移动视野寻找标本")
-                .font(.system(size: 11))
-                .foregroundColor(.white.opacity(0.55))
-        }
-        .padding(.horizontal, 16)
     }
 
     /// shader 调用结构必须保留(实验证实: 摘除 layerEffect 结构会导致圆窗黑屏,
@@ -510,7 +574,7 @@ struct MicroscopeObserverView: View {
     @ViewBuilder
     private func eyepieceView(_ vp: UIImage) -> some View {
         GeometryReader { geo in
-            let s = min(geo.size.width, geo.size.height)
+            let s = geo.size.width
 
             // 五层帐篷插值: blank → bottom → mid → top → blank (从下到上)
             // 节点位置 n: blank=0/4, bottom=1, mid=2, top=3; n=(focus+1)*2 ∈ [0,4]
@@ -522,7 +586,7 @@ struct MicroscopeObserverView: View {
             let wTop = max(0, 1 - abs(n - 3))
 
             let content = ZStack {
-                Color.black
+                viewportBg
                 if wBlank > 0, let bc = blankColor {
                     bc.opacity(Double(wBlank))
                 }
@@ -550,18 +614,26 @@ struct MicroscopeObserverView: View {
                     content
                 }
             }
+            // 亮度调节: 1~10 级, 5 级为原始; 10 级全白, 1 级全黑
+            .overlay(
+                brightnessLevel >= 5
+                    ? Color.white.opacity(min((brightnessLevel - 5) / 5, 1))
+                    : Color.black.opacity(min((5 - brightnessLevel) / 4, 1))
+            )
             .clipShape(Circle())
+            .overlay(Circle().strokeBorder(.white, lineWidth: 3))
             .animation(.easeOut(duration: 0.1), value: center)
+            .animation(.easeOut(duration: 0.15), value: brightnessLevel)
             .animation(.easeOut(duration: 0.08), value: focus)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            // 圆窗边缘内氲: 外缘 6% 半径由透明渐变到黑, 柔化硬边
+            // 圆窗边缘内氲: 外缘 6% 半径由透明渐变到白, 柔化硬边(浅色 UI)
             .overlay(
                 Circle()
                     .fill(
                         RadialGradient(
                             stops: [
                                 .init(color: .clear, location: 0.94),
-                                .init(color: .black, location: 1.0)
+                                .init(color: .white, location: 1.0)
                             ],
                             center: .center,
                             startRadius: 0,
@@ -571,8 +643,24 @@ struct MicroscopeObserverView: View {
                     .frame(width: s, height: s)
                     .allowsHitTesting(false)
             )
+            // 圆窗内顶部: 比例尺占位(20μm)
+            .overlay(alignment: .top) {
+                VStack(spacing: 2) {
+                    Text("20μm")
+                        .font(.system(size: 9, weight: .medium))
+                        .foregroundColor(.white)
+                    Image("ic_ruler")
+                        .resizable()
+                        .renderingMode(.template)
+                        .foregroundColor(.white)
+                        .frame(width: 40, height: 6)
+                }
+                .padding(.top, 10)
+                .allowsHitTesting(false)
+            }
+            // 物镜转盘: 叠在圆窗下缘, 相对圆窗定位(永远贴合圆边)
             .overlay(alignment: .bottom) {
-                viewportBadge.padding(.bottom, 6)
+                objectiveDial(s)
             }
             .onAppear {
                 if windowSize != geo.size { windowSize = geo.size }
@@ -584,93 +672,278 @@ struct MicroscopeObserverView: View {
         .frame(maxWidth: .infinity)
     }
 
-    @ViewBuilder
-    private var viewportBadge: some View {
-        if loadingViewport {
-            HStack(spacing: 6) {
-                ProgressView()
-                    .scaleEffect(0.6)
-                    .tint(.white)
-                Text(progressText.isEmpty ? "加载邻近瓦片..." : progressText)
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundColor(.white.opacity(0.85))
+    // MARK: - APK 底部控制区(SpecimenBottomControls)
+
+    /// 物镜倍率定义(底部倍率指示图的相对位置 = APK 提取的直径比例)
+    private struct ObjectiveLens: Identifiable {
+        let id: Int
+        let title: String
+        let indicator: String
+        let relX: CGFloat
+        let relY: CGFloat
+    }
+
+    private let objectiveLenses: [ObjectiveLens] = [
+        .init(id: 0, title: "4X", indicator: "ic_4x_bottom_indicator_text", relX: -0.40, relY: -0.12),
+        .init(id: 1, title: "10X", indicator: "ic_10x_bottom_indicator_text", relX: -0.155, relY: 0.04),
+        .init(id: 2, title: "40X", indicator: "ic_40x_bottom_indicator_text", relX: 0.155, relY: 0.04),
+        .init(id: 3, title: "100X", indicator: "ic_100x_bottom_indicator_text", relX: 0.40, relY: -0.12),
+    ]
+
+    /// 物镜映射: 目镜 10x, 物镜倍率 = 放大率 / 10
+    /// (如放大率 40x → 物镜 4X, 100x → 10X, 400x → 40X, 1000x → 100X)
+    private var currentLensIndex: Int? {
+        guard let t = ratioText else { return nil }
+        let digits = t.filter { "0123456789".contains($0) }
+        guard let mag = Int(digits), mag % 10 == 0 else { return nil }
+        let objective = mag / 10
+        return objectiveLenses.first { $0.title == "\(objective)X" }?.id
+    }
+
+    /// 底部控制区: 滑杆面板 + 信息条统一外围卡片, 自适应高度贴底
+    /// fixedSize 强制垂直按内容布局, 防止内部 GeometryReader 拉伸卡片
+    private var bottomControls: some View {
+        VStack(spacing: 10) {
+            sliderPanel
+            infoBarBottom
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 11)
+        .background(Color.white.opacity(0.85))
+        .clipShape(RoundedRectangle(cornerRadius: 16))
+        .overlay(
+            RoundedRectangle(cornerRadius: 16)
+                .strokeBorder(Color(hex: 0xD8DCE5), lineWidth: 1)
+        )
+        .padding(.horizontal, 24)
+        .padding(.bottom, 8)
+        .fixedSize(horizontal: false, vertical: true)
+    }
+
+    /// 物镜转盘: 圆钮沿圆窗下缘弧线排布, 锚点 = 圆窗底边中心(overlay bottom)
+    /// relX/relY 为相对锚点的偏移(圆窗直径比例)
+    private func objectiveDial(_ s: CGFloat) -> some View {
+        ZStack(alignment: .bottom) {
+            // 左侧"物镜倍率"标签
+            VStack(spacing: 3) {
+                Image("ic_biotech")
+                    .resizable()
+                    .frame(width: 15, height: 19)
+                Text("物镜\n倍率")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundColor(Color(hex: 0x34443B))
+                    .multilineTextAlignment(.center)
+                    .lineSpacing(1)
             }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 5)
-            .background(Color.black.opacity(0.55))
-            .clipShape(Capsule())
-        } else {
-            focusIndicator
+            .offset(x: -s * 0.42, y: -s * 0.02)
+
+            ForEach(objectiveLenses) { lens in
+                VStack(spacing: 0) {
+                    dialButton(lens, size: s * 0.155)
+                    Image(lens.indicator)
+                        .resizable()
+                        .frame(width: s * 0.174, height: s * 0.059)
+                        .offset(y: -2)
+                }
+                .opacity(currentLensIndex == nil || currentLensIndex == lens.id ? 1 : 0.55)
+                .offset(x: lens.relX * s, y: lens.relY * s)
+            }
         }
+        .frame(height: 0)
     }
 
-    private var focusIndicator: some View {
-        HStack(spacing: 6) {
-            Circle()
-                .fill(focus == 0 ? Color.green : Color.yellow)
-                .frame(width: 7, height: 7)
-            Text(focus == 0 ? "合焦" : (focus > 0
-                ? "前离焦 \(String(format: "%.1f", focus))"
-                : "后离焦 \(String(format: "%.1f", -focus))"))
-                .font(.system(size: 11, weight: .semibold, design: .rounded))
-                .foregroundColor(.white.opacity(0.85))
-        }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 5)
-        .background(Color.black.opacity(0.55))
-        .clipShape(Capsule())
+    /// 转盘圆按钮: 选中白底蓝环蓝字, 未选中灰底白字
+    private func dialButton(_ lens: ObjectiveLens, size: CGFloat) -> some View {
+        let selected = currentLensIndex == lens.id
+        return Text(lens.title)
+            .font(.system(size: 14, weight: .bold))
+            .foregroundColor(selected ? objectiveSelectedBg : .white)
+            .frame(width: size, height: size)
+            .background(Circle().fill(selected ? Color.white : Color(hex: 0x9EA3A8)))
+            .overlay(Circle().strokeBorder(objectiveSelectedBg, lineWidth: selected ? 3 : 0))
+            .shadow(color: .black.opacity(0.15), radius: 2, y: 1)
     }
 
-    private var controls: some View {
-        HStack(spacing: 22) {
-            directionPad
-            Divider()
-                .frame(height: 130)
-                .background(Color.white.opacity(0.2))
-            focusPad
-        }
-        .padding(.vertical, 10)
-    }
+    /// 亮度调节: 1~10 级, 初始值来自 stack.light
+    @State private var brightnessLevel: Double = 5
 
-    private func padButton(icon: String, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Image(systemName: icon)
-                .font(.system(size: 16, weight: .bold))
-                .foregroundColor(.white.opacity(0.9))
-                .frame(width: 46, height: 38)
-                .background(Color.white.opacity(0.14))
-                .clipShape(RoundedRectangle(cornerRadius: 9))
-        }
-    }
-
-    private var directionPad: some View {
-        VStack(spacing: 4) {
-            padButton(icon: "arrow.up") { pan(dx: 0, dy: -1) }
-            HStack(spacing: 4) {
-                padButton(icon: "arrow.left") { pan(dx: -1, dy: 0) }
-                padButton(icon: "arrow.down") { pan(dx: 0, dy: 1) }
-                padButton(icon: "arrow.right") { pan(dx: 1, dy: 0) }
+    /// APK 滑杆面板: 亮度 | 载物台X; 粗准焦螺旋 | 载物台Y; 细准焦螺旋
+    private var sliderPanel: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .top, spacing: 28) {
+                sliderCell(label: "亮度调节", value: brightnessBinding)
+                sliderCell(label: "载物台左右移动", value: stageXBinding)
+            }
+            HStack(alignment: .top, spacing: 28) {
+                sliderCell(label: "粗准焦螺旋", value: coarseFocusBinding)
+                sliderCell(label: "载物台前后移动", value: stageYBinding)
+            }
+            HStack(alignment: .top, spacing: 28) {
+                sliderCell(label: "细准焦螺旋", value: fineFocusBinding)
+                Color.clear
+                    .frame(maxWidth: .infinity)
             }
         }
     }
 
-    private var focusPad: some View {
-        VStack(spacing: 4) {
-            Text("焦距")
+    private func sliderCell(label: String, value: Binding<Double>) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(label)
                 .font(.system(size: 12, weight: .medium))
-                .foregroundColor(.white.opacity(0.7))
-            HStack(spacing: 4) {
-                padButton(icon: "plus") { setFocus(min(1, focus + focusStep)) }
-                padButton(icon: "minus") { setFocus(max(-1, focus - focusStep)) }
+                .foregroundColor(Color(hex: 0x34443B))
+            apkSlider(value: value)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    /// APK 滑杆: 轨道高 6(素材), thumb 18
+    private func apkSlider(value: Binding<Double>) -> some View {
+        GeometryReader { g in
+            let w = g.size.width
+            ZStack(alignment: .leading) {
+                Image("ic_slider_track_inactive")
+                    .resizable()
+                    .frame(height: 6)
+                Image("ic_slider_track_active")
+                    .resizable()
+                    .frame(width: max(0, w * value.wrappedValue), height: 6)
+                    .clipShape(RoundedRectangle(cornerRadius: 3))
+                Image("ic_slider_thumb")
+                    .resizable()
+                    .frame(width: 18, height: 18)
+                    .offset(x: (w - 18) * value.wrappedValue)
             }
-            Button("合焦") { setFocus(0) }
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundColor(WarmTheme.accent)
-                .padding(.horizontal, 10)
-                .padding(.vertical, 5)
-                .background(Color.white.opacity(0.12))
+            .frame(height: 20)
+            .contentShape(Rectangle())
+            .gesture(
+                DragGesture(minimumDistance: 0).onChanged { v in
+                    value.wrappedValue = min(max(v.location.x / w, 0), 1)
+                }
+            )
+        }
+        .frame(height: 20)
+    }
+
+    /// 亮度滑杆 ↔ 亮度级 1..10(量化到整数级)
+    private var brightnessBinding: Binding<Double> {
+        Binding(
+            get: { (brightnessLevel - 1) / 9 },
+            set: { brightnessLevel = min(max(round($0 * 9), 0), 9) + 1 }
+        )
+    }
+
+    /// 调焦刻度: focus ∈ [-1,1] ↔ 0..40(全程 40 个细分刻度)
+    private var focusTick: Double { (Double(focus) + 1) * 20 }
+
+    /// 粗准焦定位刻度(0..40, 步长 2): 细准焦窗口以此为中心, 不随细调漂移
+    @State private var coarseTick: Double = 20
+
+    /// 粗准焦: 滑杆 0..1 ↔ 0..40 刻度, 每跳 2(共 20 档)
+    private var coarseFocusBinding: Binding<Double> {
+        Binding(
+            get: { coarseTick / 40 },
+            set: { v in
+                coarseTick = min(max((v * 40 / 2).rounded() * 2, 0), 40)
+                setFocus(Float(coarseTick) / 40 * 2 - 1)
+            }
+        )
+    }
+
+    /// 细准焦: 以粗准焦定位刻度(coarseTick)为中心的 ±5 刻度窗口内连续微调
+    private var fineFocusBinding: Binding<Double> {
+        Binding(
+            get: {
+                min(max((focusTick - (coarseTick - 5)) / 10, 0), 1)
+            },
+            set: { v in
+                let tick = min(max(coarseTick - 5 + v * 10, 0), 40)
+                setFocus(Float(tick) / 40 * 2 - 1)
+            }
+        )
+    }
+
+    /// 载物台 X 滑杆 ↔ center.x(clamp 范围内线性映射)
+    private var stageXBinding: Binding<Double> {
+        Binding(
+            get: {
+                let (minX, maxX) = stageXRange
+                guard maxX > minX else { return 0.5 }
+                return Double((center.x - minX) / (maxX - minX))
+            },
+            set: { v in
+                let (minX, maxX) = stageXRange
+                withAnimation(.easeOut(duration: 0.05)) { center.x = minX + (maxX - minX) * v }
+                debounceViewportReload()
+            }
+        )
+    }
+
+    /// 载物台 Y 滑杆 ↔ center.y
+    private var stageYBinding: Binding<Double> {
+        Binding(
+            get: {
+                let (minY, maxY) = stageYRange
+                guard maxY > minY else { return 0.5 }
+                return Double((center.y - minY) / (maxY - minY))
+            },
+            set: { v in
+                let (minY, maxY) = stageYRange
+                withAnimation(.easeOut(duration: 0.05)) { center.y = minY + (maxY - minY) * v }
+                debounceViewportReload()
+            }
+        )
+    }
+
+    private var stageXRange: (CGFloat, CGFloat) {
+        let half = max(windowSize.width, 1) / viewScale / 2
+        return (min(half, gridWidth / 2), max(gridWidth - half, gridWidth / 2))
+    }
+
+    private var stageYRange: (CGFloat, CGFloat) {
+        let half = max(windowSize.width, 1) / viewScale / 2
+        return (min(half, gridHeight / 2), max(gridHeight - half, gridHeight / 2))
+    }
+
+    /// 滑杆连续拖动后防抖重拼视口
+    private func debounceViewportReload() {
+        reloadTask?.cancel()
+        reloadTask = Task {
+            try? await Task.sleep(for: .milliseconds(250))
+            if !Task.isCancelled { ensureViewport() }
+        }
+    }
+
+    /// 底部信息条: 调焦值 / 放大倍率 / 载物台坐标(两行, 防溢出)
+    /// 载物台坐标: 瓦片 512px, 网格总尺寸已知, 以标本中心为原点的像素坐标
+    private var infoBarBottom: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 6) {
+                infoChip(label: "调焦值", value: String(format: "%.1f", focusTick))
+                infoChip(label: "放大倍率", value: ratioText ?? "-")
+                Spacer(minLength: 0)
+            }
+            infoChip(label: "载物台坐标",
+                     value: "X:\(Int(center.x - gridWidth / 2)) Y:\(Int(center.y - gridHeight / 2))")
+        }
+    }
+
+    private func infoChip(label: String, value: String) -> some View {
+        HStack(spacing: 3) {
+            Text(label)
+                .font(.system(size: 10, weight: .medium))
+                .foregroundColor(Color(hex: 0x34443B))
+            Text(value)
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundColor(Color(hex: 0x34443B))
+                .padding(.horizontal, 5)
+                .padding(.vertical, 2)
+                .background(Color(hex: 0xEFF1F6))
                 .clipShape(Capsule())
         }
+        .padding(.horizontal, 6)
+        .padding(.vertical, 4)
+        .background(Color.white.opacity(0.92))
+        .clipShape(RoundedRectangle(cornerRadius: 9))
     }
 
     /// 平移视野: dx/dy 为方向(-1/0/1), 视野中心在源图内移动并 clamp 到网格边界
