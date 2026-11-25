@@ -41,6 +41,11 @@ struct MicroscopeSetupView: View {
         guard let i = selectedRatioIndex, ratios.indices.contains(i) else { return nil }
         return "\(ratios[i].ratio)x"
     }
+    /// 当前倍率的标定值(px/μm, specimen_ratios.ruler)
+    private var rulerValue: Double? {
+        guard let i = selectedRatioIndex, ratios.indices.contains(i) else { return nil }
+        return ratios[i].ruler
+    }
     private var stackId: Int? {
         guard let i = selectedStackIndex, stacks.indices.contains(i) else { return nil }
         return stacks[i].id
@@ -126,7 +131,8 @@ struct MicroscopeSetupView: View {
                     MicroscopeObserverView(
                         specimenId: sid, ratioId: rid, stackId: stkId,
                         ratioText: ratioLabel,
-                        lightLevel: selectedStackIndex.flatMap { stacks.indices.contains($0) ? stacks[$0].light : nil }
+                        lightLevel: selectedStackIndex.flatMap { stacks.indices.contains($0) ? stacks[$0].light : nil },
+                        scaleRuler: rulerValue
                     )
                 }
             }
@@ -318,6 +324,8 @@ struct MicroscopeObserverView: View {
     var ratioText: String? = nil
     /// 当前堆叠的光源亮度(1~10 级, 来自 stack.light)
     var lightLevel: Double? = nil
+    /// 标定值(px/μm, 来自 specimen_ratios.ruler), 换算比例尺读数
+    var scaleRuler: Double? = nil
 
     /// APK 观察页规格(反编译 com.stellarx.wwai SpecimenObservationPageKt)
     private let viewportBg = Color(red: 0xF0 / 255, green: 0xEA / 255, blue: 0xF5 / 255)  // #F0EAF5
@@ -466,8 +474,8 @@ struct MicroscopeObserverView: View {
                             Spacer(minLength: 0)
                             bottomControls
                                 .frame(width: sw)
-                                // 抬高卡片, 缩小与转盘 PLAN 标注的间隙(约 1/4)
-                                .padding(.bottom, sw * 0.12)
+                                // 卡片与圆窗/转盘的间距
+                                .padding(.bottom, sw * 0.15)
                         }
                     }
                 }
@@ -643,10 +651,10 @@ struct MicroscopeObserverView: View {
                     .frame(width: s, height: s)
                     .allowsHitTesting(false)
             )
-            // 圆窗内顶部: 比例尺占位(20μm)
+            // 圆窗内顶部: 比例尺(标尺线固定 40pt, 实际长度 = 40 / ruler μm; 未标定显示 "--")
             .overlay(alignment: .top) {
                 VStack(spacing: 2) {
-                    Text("20μm")
+                    Text(scaleRulerText)
                         .font(.system(size: 9, weight: .medium))
                         .foregroundColor(.white)
                     Image("ic_ruler")
@@ -735,7 +743,7 @@ struct MicroscopeObserverView: View {
                     .multilineTextAlignment(.center)
                     .lineSpacing(1)
             }
-            .offset(x: -s * 0.42, y: -s * 0.02)
+            .offset(x: -s * 0.42, y: s * 0.03)
 
             ForEach(objectiveLenses) { lens in
                 VStack(spacing: 0) {
@@ -778,11 +786,8 @@ struct MicroscopeObserverView: View {
                 sliderCell(label: "粗准焦螺旋", value: coarseFocusBinding)
                 sliderCell(label: "载物台前后移动", value: stageYBinding)
             }
-            HStack(alignment: .top, spacing: 28) {
-                sliderCell(label: "细准焦螺旋", value: fineFocusBinding)
-                Color.clear
-                    .frame(maxWidth: .infinity)
-            }
+            // 细准焦螺旋: 单行全宽, 滑杆长度约 2 倍
+            sliderCell(label: "细准焦螺旋", value: fineFocusBinding)
         }
     }
 
@@ -832,31 +837,36 @@ struct MicroscopeObserverView: View {
         )
     }
 
+    /// 比例尺读数: 标尺线 40pt ÷ 标定值(px/μm) = 实际长度(μm)
+    private var scaleRulerText: String {
+        guard let ruler = scaleRuler, ruler > 0 else { return "--" }
+        let um = 40 / ruler
+        return um >= 100 ? String(format: "%.0fμm", um)
+            : (um >= 10 ? String(format: "%.0fμm", um) : String(format: "%.1fμm", um))
+    }
+
     /// 调焦刻度: focus ∈ [-1,1] ↔ 0..40(全程 40 个细分刻度)
     private var focusTick: Double { (Double(focus) + 1) * 20 }
 
-    /// 粗准焦定位刻度(0..40, 步长 2): 细准焦窗口以此为中心, 不随细调漂移
-    @State private var coarseTick: Double = 20
-
-    /// 粗准焦: 滑杆 0..1 ↔ 0..40 刻度, 每跳 2(共 20 档)
+    /// 粗准焦: 同一根调焦轴(0..40 刻度), 步进 4(共 11 档)
+    /// 细调后粗滑杆自动同步到最近粗刻度
     private var coarseFocusBinding: Binding<Double> {
         Binding(
-            get: { coarseTick / 40 },
+            get: { (focusTick / 4).rounded() * 4 / 40 },
             set: { v in
-                coarseTick = min(max((v * 40 / 2).rounded() * 2, 0), 40)
-                setFocus(Float(coarseTick) / 40 * 2 - 1)
+                let tick = min(max((v * 40 / 4).rounded() * 4, 0), 40)
+                setFocus(Float(tick) / 40 * 2 - 1)
             }
         )
     }
 
-    /// 细准焦: 以粗准焦定位刻度(coarseTick)为中心的 ±5 刻度窗口内连续微调
+    /// 细准焦: 同一根调焦轴(0..40 刻度), 步进 0.5(共 81 档)
+    /// 粗调后细滑杆自动同步到最近 0.5 刻度
     private var fineFocusBinding: Binding<Double> {
         Binding(
-            get: {
-                min(max((focusTick - (coarseTick - 5)) / 10, 0), 1)
-            },
+            get: { (focusTick * 2).rounded() / 2 / 40 },
             set: { v in
-                let tick = min(max(coarseTick - 5 + v * 10, 0), 40)
+                let tick = min(max((v * 40 / 0.5).rounded() * 0.5, 0), 40)
                 setFocus(Float(tick) / 40 * 2 - 1)
             }
         )
@@ -868,7 +878,7 @@ struct MicroscopeObserverView: View {
             get: {
                 let (minX, maxX) = stageXRange
                 guard maxX > minX else { return 0.5 }
-                return Double((center.x - minX) / (maxX - minX))
+                return min(max(Double((center.x - minX) / (maxX - minX)), 0), 1)
             },
             set: { v in
                 let (minX, maxX) = stageXRange
@@ -884,7 +894,7 @@ struct MicroscopeObserverView: View {
             get: {
                 let (minY, maxY) = stageYRange
                 guard maxY > minY else { return 0.5 }
-                return Double((center.y - minY) / (maxY - minY))
+                return min(max(Double((center.y - minY) / (maxY - minY)), 0), 1)
             },
             set: { v in
                 let (minY, maxY) = stageYRange
@@ -1090,12 +1100,13 @@ struct MicroscopeObserverView: View {
             return
         }
 
-        // 4. 后台拼合局部图
+        // 4. 后台拼合局部图(空白区/缺失瓦片填空白底色, 不露黑)
         let width = CGFloat(x1 - x0 + 1) * tileW
         let height = CGFloat(y1 - y0 + 1) * tileH
+        let bg = UIColor(blankColor ?? Color(hex: 0xF0EAF5))
         let image = await Task.detached(priority: .userInitiated) {
             Self.renderRegion(tiles: region, width: width, height: height,
-                              opaque: layer == "mid")
+                              opaque: layer == "mid", background: bg)
         }.value
         guard signature == (layer == "mid" ? viewportSignature : viewportAltSignature) else { return }
 
@@ -1131,7 +1142,8 @@ struct MicroscopeObserverView: View {
     nonisolated private static func renderRegion(
         tiles: [RegionTile],
         width: CGFloat, height: CGFloat,
-        opaque: Bool = true
+        opaque: Bool = true,
+        background: UIColor = UIColor(Color(hex: 0xF0EAF5))
     ) -> UIImage {
         let size = CGSize(width: max(width, 1), height: max(height, 1))
         let format = UIGraphicsImageRendererFormat()
@@ -1140,7 +1152,7 @@ struct MicroscopeObserverView: View {
         let renderer = UIGraphicsImageRenderer(size: size, format: format)
         return renderer.image { context in
             if opaque {
-                UIColor.black.setFill()
+                background.setFill()
                 context.fill(CGRect(origin: .zero, size: size))
             }
             for t in tiles {
@@ -1242,6 +1254,10 @@ struct MicroscopeObserverView: View {
         } else {
             center = CGPoint(x: gridWidth / 2, y: gridHeight / 2)
         }
+        // 小网格(如 2×2)时内容瓦片中心可能落在视窗合法范围外 → 拉回,
+        // 否则载物台滑杆 thumb 越界、圆窗露到网格外
+        center.x = min(max(center.x, stageXRange.0), stageXRange.1)
+        center.y = min(max(center.y, stageYRange.0), stageYRange.1)
     }
 }
 
