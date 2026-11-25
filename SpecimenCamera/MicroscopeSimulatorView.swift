@@ -386,6 +386,8 @@ struct MicroscopeObserverView: View {
     @State private var reloadTask: Task<Void, Never>?   // 移动/调焦防抖
     @State private var loadingViewport = false
     @State private var tileCache: [String: UIImage] = [:]
+    /// LRU 访问顺序(尾部最新): 超限时淘汰最久未用的瓦片, 而不是整批清空
+    @State private var tileCacheOrder: [String] = []
     @State private var focus: Float = 0
 
     // 三焦面: 底层恒为 mid 拼合图; top/bottom 按需拼合为顶层, 透明底,
@@ -992,6 +994,32 @@ struct MicroscopeObserverView: View {
     /// false → 拼视野覆盖的块(2×2 左右)
     private let onlyCenterTile = false
 
+    // MARK: - 瓦片 LRU 缓存
+
+    /// 取缓存并刷新 LRU 顺序(访问即变为最新)
+    private func cachedTile(_ key: String) -> UIImage? {
+        guard let img = tileCache[key] else { return nil }
+        tileCacheOrder.removeAll { $0 == key }
+        tileCacheOrder.append(key)
+        return img
+    }
+
+    /// 写入缓存; 超限时从最旧端淘汰(LRU), 不再整批清空
+    private func cacheTile(_ key: String, _ img: UIImage) {
+        if tileCache[key] != nil {
+            tileCacheOrder.removeAll { $0 == key }
+        }
+        tileCache[key] = img
+        tileCacheOrder.append(key)
+        if tileCacheOrder.count > tileCacheLimit {
+            let evict = tileCacheOrder.count - tileCacheLimit
+            for k in tileCacheOrder.prefix(evict) {
+                tileCache.removeValue(forKey: k)
+            }
+            tileCacheOrder.removeFirst(evict)
+        }
+    }
+
     private func ensureViewport() {
         // 窗口尺寸未知(placeholder 尚未渲染)时不拼, 等 onChange(windowSize) 再触发
         guard windowSize.width > 10 else { return }
@@ -1043,7 +1071,7 @@ struct MicroscopeObserverView: View {
         for ty in y0...y1 {
             for tx in x0...x1 {
                 let key = "\(layer)|\(tx),\(ty)"
-                guard tileCache[key] == nil,
+                guard cachedTile(key) == nil,
                       let m = metaByCoord["\(tx),\(ty)"],
                       m.url(for: layer)?.isEmpty == false else { continue }
                 needed.append(m)
@@ -1067,7 +1095,7 @@ struct MicroscopeObserverView: View {
                     progressText = "加载瓦片 \(fetched)/\(needed.count)"
                     if let img {
                         let m = needed[i]
-                        tileCache["\(layer)|\(m.tx),\(m.ty)"] = img
+                        cacheTile("\(layer)|\(m.tx),\(m.ty)", img)
                     }
                 }
             }
@@ -1084,7 +1112,7 @@ struct MicroscopeObserverView: View {
         var region: [RegionTile] = []
         for ty in y0...y1 {
             for tx in x0...x1 {
-                if let img = tileCache["\(layer)|\(tx),\(ty)"],
+                if let img = cachedTile("\(layer)|\(tx),\(ty)"),
                    let m = metaByCoord["\(tx),\(ty)"] {
                     region.append(RegionTile(px: m.px - originPx,
                                              py: m.py - originPy,
@@ -1092,7 +1120,6 @@ struct MicroscopeObserverView: View {
                 }
             }
         }
-        if tileCache.count > tileCacheLimit { tileCache.removeAll() }
         // 顶层焦面允许部分块缺失(该块无此焦面) → 拼合图对应区域透明, 露出底层 mid。
         // 但整层一块都没有时不更新 UI: 显示一张全透明顶层会把 mid 权重压低 → 露黑底
         if region.isEmpty {
