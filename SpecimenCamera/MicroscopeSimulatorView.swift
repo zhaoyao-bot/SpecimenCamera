@@ -392,11 +392,11 @@ struct MicroscopeObserverView: View {
 
     // 三焦面: 底层恒为 mid 拼合图; top/bottom 按需拼合为顶层, 透明底,
     // 五焦面帐篷插值(focus 两端为 blank 纯色层, 见 eyepieceView)
-    @State private var viewportImageAlt: UIImage?
-    @State private var viewportOriginAlt: CGPoint = .zero
-    @State private var altLayerName = ""                // 已拼合的顶层名("top"/"bottom"/"")
-    @State private var viewportAltSignature = ""
-    @State private var viewportAltTask: Task<Void, Never>?
+    /// 五层插值 alt 层: bottom/top 各自独立拼合缓存, 调焦跨方向时图像已就绪
+    @State private var viewportAltImages: [String: UIImage] = [:]   // key: "bottom"/"top"
+    @State private var viewportAltOrigins: [String: CGPoint] = [:]
+    @State private var altSignatures: [String: String] = [:]
+    @State private var altTasks: [String: Task<Void, Never>] = [:]
 
     // blank 层: (0,0) 空白占位瓦片的平均色, 视场完全离焦时的空白背景
     @State private var blankColor: Color?
@@ -497,6 +497,7 @@ struct MicroscopeObserverView: View {
         .onDisappear {
             viewportTask?.cancel()
             reloadTask?.cancel()
+            altTasks.values.forEach { $0.cancel() }
         }
     }
 
@@ -600,12 +601,12 @@ struct MicroscopeObserverView: View {
                 if wBlank > 0, let bc = blankColor {
                     bc.opacity(Double(wBlank))
                 }
-                if wBottom > 0, altLayerName == "bottom", let alt = viewportImageAlt {
-                    layerImage(alt, viewportOriginAlt, opacity: Double(wBottom))
+                if wBottom > 0, let alt = viewportAltImages["bottom"] {
+                    layerImage(alt, viewportAltOrigins["bottom"] ?? .zero, opacity: Double(wBottom))
                 }
                 layerImage(vp, viewportOrigin, opacity: Double(wMid))
-                if wTop > 0, altLayerName == "top", let alt = viewportImageAlt {
-                    layerImage(alt, viewportOriginAlt, opacity: Double(wTop))
+                if wTop > 0, let alt = viewportAltImages["top"] {
+                    layerImage(alt, viewportAltOrigins["top"] ?? .zero, opacity: Double(wTop))
                 }
             }
             .frame(width: s, height: s)
@@ -1049,19 +1050,24 @@ struct MicroscopeObserverView: View {
         }
 
         // ---- 五层插值的 alt 层(blank→bottom→mid→top→blank, 从下到上) ----
-        // + (向上调焦) → top, − (向下调焦) → bottom
-        // 接近合焦(|focus| ≤ 0.05)时 alt 权重很小(≤0.1), 不需要拼合
-        let wantAlt = focus > 0.05 ? "top" : (focus < -0.05 ? "bottom" : "")
-        guard wantAlt.isEmpty == false else { return }
-        let altSignature = "\(wantAlt)|\(x0),\(y0),\(x1),\(y1)"
-        guard altSignature != viewportAltSignature else { return }
-        viewportAltSignature = altSignature
-        viewportAltTask = Task { await buildViewport(layer: wantAlt, x0: x0, y0: y0, x1: x1, y1: y1, signature: altSignature) }
+        // bottom/top 两层同时按当前区域预拼(与 mid 共享瓦片 LRU 缓存),
+        // 调焦跨过合焦换方向时图像已就绪, 画面连续不跳变
+        for layerName in ["bottom", "top"] {
+            let altSignature = "\(layerName)|\(x0),\(y0),\(x1),\(y1)"
+            guard altSignature != altSignatures[layerName] else { continue }
+            altSignatures[layerName] = altSignature
+            altTasks[layerName] = Task { await buildViewport(layer: layerName, x0: x0, y0: y0, x1: x1, y1: y1, signature: altSignature) }
+        }
+    }
+
+    /// 当前生效签名(mid / alt 分层), 用于异步任务作废守卫
+    private func activeSignature(_ layer: String) -> String {
+        layer == "mid" ? viewportSignature : (altSignatures[layer] ?? "")
     }
 
     private func buildViewport(layer: String, x0: Int, y0: Int, x1: Int, y1: Int, signature: String) async {
         // 签名已变(期间又有新的视口请求) → 本次作废, 不下载
-        guard signature == (layer == "mid" ? viewportSignature : viewportAltSignature) else { return }
+        guard signature == activeSignature(layer) else { return }
         loadingViewport = true
         defer { loadingViewport = false }
 
@@ -1102,7 +1108,7 @@ struct MicroscopeObserverView: View {
         }
 
         // 2. 期间签名又变了 → 只攒缓存, 不更新 UI(不清理缓存)
-        guard signature == (layer == "mid" ? viewportSignature : viewportAltSignature) else { return }
+        guard signature == activeSignature(layer) else { return }
 
         // 3. 收集本视口区域内的瓦片(清理缓存前取出)
         //    px/py 必须是"相对区域原点"的画布坐标:
@@ -1135,16 +1141,15 @@ struct MicroscopeObserverView: View {
             Self.renderRegion(tiles: region, width: width, height: height,
                               opaque: layer == "mid", background: bg)
         }.value
-        guard signature == (layer == "mid" ? viewportSignature : viewportAltSignature) else { return }
+        guard signature == activeSignature(layer) else { return }
 
         if layer == "mid" {
             viewportImage = image
             viewportOrigin = CGPoint(x: CGFloat(x0) * tileW, y: CGFloat(y0) * tileH)
             viewportTiles = (x0, y0, x1, y1)
         } else {
-            viewportImageAlt = image
-            viewportOriginAlt = CGPoint(x: CGFloat(x0) * tileW, y: CGFloat(y0) * tileH)
-            altLayerName = layer
+            viewportAltImages[layer] = image
+            viewportAltOrigins[layer] = CGPoint(x: CGFloat(x0) * tileW, y: CGFloat(y0) * tileH)
         }
     }
 
